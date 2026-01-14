@@ -39,6 +39,16 @@ android {
     }
 }
 
+dependencies {
+    // Encrypted SharedPreferences for secure key storage
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    
+    // WireGuard Android library
+    // TODO: Add wireguard-android dependency when available
+    // For now, using placeholder implementation
+    // implementation("com.wireguard.android:tunnel:1.0.0")
+}
+
 flutter {
     source = "../.."
 }

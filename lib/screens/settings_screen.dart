@@ -81,6 +81,19 @@ class SettingsScreen extends StatelessWidget {
                     );
                   },
                 ),
+                const Divider(height: 1),
+                Consumer<VpnProvider>(
+                  builder: (context, vpn, child) {
+                    return _buildEditableTile(
+                      context,
+                      icon: Icons.dns_rounded,
+                      iconColor: Theme.of(context).colorScheme.primary,
+                      title: 'Server Endpoint',
+                      subtitle: vpn.serverEndpoint,
+                      onTap: () => _showServerEndpointDialog(context, vpn),
+                    );
+                  },
+                ),
               ],
             ),
             const SizedBox(height: 24),
@@ -244,6 +257,78 @@ class SettingsScreen extends StatelessWidget {
         style: Theme.of(
           context,
         ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+      ),
+    );
+  }
+
+  Widget _buildEditableTile(
+    BuildContext context, {
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: iconColor.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(icon, color: iconColor),
+      ),
+      title: Text(
+        title,
+        style: Theme.of(
+          context,
+        ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w500),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: Theme.of(context).textTheme.bodySmall,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: const Icon(Icons.chevron_right_rounded),
+      onTap: onTap,
+    );
+  }
+
+  void _showServerEndpointDialog(BuildContext context, VpnProvider vpn) {
+    final controller = TextEditingController(text: vpn.serverEndpoint);
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Server Endpoint'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Endpoint',
+            hintText: 'example.com:51820',
+            helperText: 'Format: hostname:port or IP:port',
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              final endpoint = controller.text.trim();
+              if (endpoint.isNotEmpty) {
+                vpn.setServerEndpoint(endpoint);
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
       ),
     );
   }

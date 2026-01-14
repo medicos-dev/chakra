@@ -6,7 +6,7 @@ import 'providers/vpn_provider.dart';
 import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const ChakraApp());
 }

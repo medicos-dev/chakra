@@ -50,6 +50,9 @@ class _ConnectButtonState extends State<ConnectButton>
         return AppColors.connectingButtonGradient;
       case VpnConnectionState.connected:
         return AppColors.disconnectButtonGradient;
+      case VpnConnectionState.error:
+        // Show as disconnected-style button on error
+        return AppColors.connectButtonGradient;
     }
   }
 
@@ -62,6 +65,9 @@ class _ConnectButtonState extends State<ConnectButton>
         return Icons.sync_rounded;
       case VpnConnectionState.connected:
         return Icons.shield_rounded;
+      case VpnConnectionState.error:
+        // Use power icon so user can retry
+        return Icons.power_settings_new_rounded;
     }
   }
 
@@ -75,6 +81,8 @@ class _ConnectButtonState extends State<ConnectButton>
         return 'Disconnect';
       case VpnConnectionState.reconnecting:
         return 'Reconnecting...';
+      case VpnConnectionState.error:
+        return 'Retry';
     }
   }
 
@@ -180,12 +188,30 @@ class _ConnectButtonState extends State<ConnectButton>
             // Button text
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 300),
-              child: Text(
-                _getButtonText(vpn.connectionState),
+              child: Column(
                 key: ValueKey(vpn.connectionState),
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _getButtonText(vpn.connectionState),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                  if (vpn.isReconnecting) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
           ],

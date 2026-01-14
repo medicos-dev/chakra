@@ -16,6 +16,9 @@ class StatusBarWidget extends StatelessWidget {
         return AppColors.connected;
       case VpnConnectionState.reconnecting:
         return AppColors.reconnecting;
+      case VpnConnectionState.error:
+        // Treat error as disconnected in terms of color
+        return AppColors.disconnected;
     }
   }
 
@@ -62,14 +65,31 @@ class StatusBarWidget extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  Text(
-                    vpn.statusText,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: _getStatusColor(vpn.connectionState),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          vpn.statusText,
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: _getStatusColor(vpn.connectionState),
+                          ),
+                        ),
+                        if (vpn.isConnected)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              'Protected in background',
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context).textTheme.bodySmall?.color?.withValues(alpha: 0.7),
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                  const Spacer(),
                   if (vpn.isConnected)
                     Text(
                       vpn.connectionDuration,
@@ -79,6 +99,36 @@ class StatusBarWidget extends StatelessWidget {
                     ),
                 ],
               ),
+              // Background protection info
+              if (vpn.isConnected || vpn.isReconnecting) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline_rounded,
+                        size: 16,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'VPN remains active even when app is closed',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.primary,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               if (vpn.isConnected) ...[
                 const SizedBox(height: 20),
                 const Divider(height: 1),
