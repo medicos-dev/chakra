@@ -54,7 +54,7 @@ class ChakraForegroundService : Service() {
         
         fun getInstance(): ChakraForegroundService? = instance
         
-        fun getCurrentStatus(): Map<String, Any> {
+        fun getCurrentStatus(): Map<String, Any?> {
             return instance?.getStatusMap() ?: mapOf(
                 "status" to "disconnected",
                 "publicIp" to null,
@@ -387,7 +387,7 @@ class ChakraForegroundService : Service() {
     /**
      * Get status map for Flutter
      */
-    fun getStatusMap(): Map<String, Any> {
+    fun getStatusMap(): Map<String, Any?> {
         val statusStr = when (currentStatus) {
             VpnStatus.Connected -> "connected"
             VpnStatus.Connecting -> "connecting"
@@ -396,7 +396,7 @@ class ChakraForegroundService : Service() {
             VpnStatus.Error -> "error"
         }
         
-        val stats = vpnService?.getStats() ?: emptyMap()
+        val stats = vpnService?.getStats() ?: emptyMap<String, Any>()
         
         return mapOf(
             "status" to statusStr,
