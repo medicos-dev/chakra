@@ -308,11 +308,20 @@ class VpnProvider extends ChangeNotifier {
       } else if (msg['type'] == 'candidate') {
         final candidateMap = msg['candidate'];
         if (candidateMap != null) {
-          String? candidateStr = candidateMap['candidate'];
-          String? sdpMid = candidateMap['sdpMid'];
-          int? sdpMLineIndex = candidateMap['sdpMLineIndex'];
+          print("RAW CANDIDATE MAP: $candidateMap");
+          dynamic rawCandidate = candidateMap['candidate'];
+          print("CANDIDATE FIELD TYPE: ${rawCandidate.runtimeType}");
 
-          if (candidateStr != null) {
+          String? candidateStr = rawCandidate?.toString();
+          String? sdpMid = candidateMap['sdpMid']?.toString();
+          int? sdpMLineIndex =
+              candidateMap['sdpMLineIndex'] is int
+                  ? candidateMap['sdpMLineIndex']
+                  : int.tryParse(
+                    candidateMap['sdpMLineIndex']?.toString() ?? "",
+                  );
+
+          if (candidateStr != null && candidateStr.isNotEmpty) {
             final candidate = RTCIceCandidate(
               candidateStr,
               sdpMid,
