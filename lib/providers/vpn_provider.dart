@@ -34,6 +34,11 @@ class VpnProvider extends ChangeNotifier {
   static const _controlChannel = MethodChannel('com.chakra.vpn/control');
   static const _packetChannel = EventChannel('com.chakra.vpn/packets');
   StreamSubscription? _packetSubscription;
+  Timer? _connectionTimeoutTimer;
+
+  // Trickle ICE Queue
+  final List<RTCIceCandidate> _remoteCandidates = [];
+  bool _remoteDescriptionSet = false;
 
   // Signaling Config
   final Map<String, dynamic> _iceServers = {
@@ -144,10 +149,25 @@ class VpnProvider extends ChangeNotifier {
         },
       );
 
+      // 1.5. Start Connection Timeout Timer
+      _connectionTimeoutTimer?.cancel();
+      _connectionTimeoutTimer = Timer(const Duration(seconds: 15), () {
+        if (_connectionState != VpnConnectionState.connected) {
+          print('Connection Timeout (15s) - Retrying...');
+          disconnect();
+          // Optional: Retry once automatically? For now, just disconnect and let user/auto-reconnect handle it.
+          // If auto-connect is on, it might loop, so be careful.
+          _setErrorState();
+        }
+      });
+
       // 2. Create Peer Connection
       _peerConnection = await createPeerConnection(_iceServers, {
         'optional': [],
       });
+
+      _remoteDescriptionSet = false;
+      _remoteCandidates.clear();
 
       _peerConnection?.onIceCandidate = (candidate) {
         _sendSignalingMessage({
@@ -233,6 +253,8 @@ class VpnProvider extends ChangeNotifier {
       _connectionState = VpnConnectionState.connected;
       _connectedSince = DateTime.now();
       _currentIp = '10.0.0.2';
+
+      _connectionTimeoutTimer?.cancel();
       notifyListeners();
     } catch (e) {
       print('Failed to start VPN Service: $e');
@@ -259,6 +281,11 @@ class VpnProvider extends ChangeNotifier {
     _connectionState = VpnConnectionState.disconnected;
     _currentIp = '---';
     _connectedSince = null;
+
+    _connectionTimeoutTimer?.cancel();
+    _remoteCandidates.clear();
+    _remoteDescriptionSet = false;
+
     notifyListeners();
   }
 
@@ -266,18 +293,41 @@ class VpnProvider extends ChangeNotifier {
     try {
       final msg = jsonDecode(data);
       if (msg['type'] == 'answer') {
+        print('Setting Remote Description from Answer');
         await _peerConnection?.setRemoteDescription(
           RTCSessionDescription(msg['sdp'], 'answer'),
         );
+        _remoteDescriptionSet = true;
+
+        // Drain queued candidates
+        print('Draining ${_remoteCandidates.length} queued candidates');
+        for (final candidate in _remoteCandidates) {
+          await _peerConnection?.addCandidate(candidate);
+        }
+        _remoteCandidates.clear();
       } else if (msg['type'] == 'candidate') {
-        final candidate = msg['candidate'];
-        await _peerConnection?.addCandidate(
-          RTCIceCandidate(
-            candidate['candidate'],
-            candidate['sdpMid'],
-            candidate['sdpMLineIndex'],
-          ),
-        );
+        final candidateMap = msg['candidate'];
+        if (candidateMap != null) {
+          String? candidateStr = candidateMap['candidate'];
+          String? sdpMid = candidateMap['sdpMid'];
+          int? sdpMLineIndex = candidateMap['sdpMLineIndex'];
+
+          if (candidateStr != null) {
+            final candidate = RTCIceCandidate(
+              candidateStr,
+              sdpMid,
+              sdpMLineIndex,
+            );
+
+            if (_remoteDescriptionSet) {
+              print('Adding ICE Candidate immediately');
+              await _peerConnection?.addCandidate(candidate);
+            } else {
+              print('Queueing ICE Candidate (Remote Description not set)');
+              _remoteCandidates.add(candidate);
+            }
+          }
+        }
       }
     } catch (e) {
       print('Signaling Error: $e');

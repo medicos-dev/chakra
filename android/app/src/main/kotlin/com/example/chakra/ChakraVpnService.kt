@@ -14,6 +14,10 @@ class ChakraVpnService : VpnService() {
     private var mInterface: ParcelFileDescriptor? = null
     private val mRunning = AtomicBoolean(false)
     private var mThread: Thread? = null
+    
+    // Traffic stats
+    private var bytesSent: Long = 0
+    private var bytesReceived: Long = 0
 
     companion object {
         private const val TAG = "ChakraVpnService"
@@ -36,8 +40,53 @@ class ChakraVpnService : VpnService() {
             return START_STICKY
         }
 
-        startVpn()
+        // Start command is handled via connect() method when using ForegroundService
+        // but we keep this for direct service starting if needed
         return START_STICKY
+    }
+
+    /**
+     * Connect VPN
+     * Called by ChakraForegroundService
+     */
+    fun connect(
+        clientPrivateKey: String,
+        clientPublicKey: String,
+        clientIpAddress: String,
+        serverPublicKey: String,
+        endpoint: String
+    ): Boolean {
+        Log.i(TAG, "Connect requested to $endpoint")
+        
+        // In a real implementation, we would use these parameters to configure
+        // the WireGuard tunnel or passing them to the native backend.
+        // For this WebRTC/Tunnel implementation, we start the VPN interface.
+        
+        try {
+            startVpn()
+            return mRunning.get()
+        } catch (e: Exception) {
+            Log.e(TAG, "Connect failed: ${e.message}")
+            return false
+        }
+    }
+
+    /**
+     * Disconnect VPN
+     */
+    fun disconnect() {
+        Log.i(TAG, "Disconnect requested")
+        stopVpn()
+    }
+
+    /**
+     * Get VPN statistics
+     */
+    fun getStats(): Map<String, Any> {
+        return mapOf(
+            "bytesSent" to bytesSent,
+            "bytesReceived" to bytesReceived
+        )
     }
 
     override fun onDestroy() {
@@ -111,6 +160,7 @@ class ChakraVpnService : VpnService() {
                     
                     // Send to Flutter
                     PacketProcessor.onPacketReceived(packet)
+                    bytesReceived += length
                 }
                 buffer.clear()
             } catch (e: Exception) {
@@ -126,6 +176,7 @@ class ChakraVpnService : VpnService() {
         if (mInterface != null && mRunning.get() && mOutputStream != null) {
             try {
                 mOutputStream?.write(packet)
+                bytesSent += packet.size
             } catch (e: Exception) {
                 Log.e(TAG, "Error writing packet: ${e.message}")
             }

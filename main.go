@@ -13,34 +13,53 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-// Simple peer-to-peer relay
+var (
+	clients = make(map[*websocket.Conn]bool)
+	mu      sync.Mutex
+)
+
 func handleSignaling(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		return
+		log.Println("Upgrade error:", err)
+		return // MUST return here so we don't use 'w' anymore
 	}
-	defer conn.Close()
+	defer func() {
+		mu.Lock()
+		delete(clients, conn)
+		mu.Unlock()
+		conn.Close()
+	}()
+
+	// IMPORTANT: Add the connection to our client list
+	mu.Lock()
+	clients[conn] = true
+	mu.Unlock()
+
+	log.Println("New peer connected to signaling server")
 
 	for {
 		mt, message, err := conn.ReadMessage()
 		if err != nil {
+			log.Println("Read error:", err)
 			break
 		}
-		// Broadcast to everyone (In a 1:1 VPN, this just sends it to the other peer)
-		// For production, you'd use a Map to handle multiple users/rooms
+		// Relay the message to all other connected peers (Phone <-> Laptop)
 		broadcast(mt, message, conn)
 	}
 }
-
-var clients = make(map[*websocket.Conn]bool)
-var mu sync.Mutex
 
 func broadcast(mt int, msg []byte, sender *websocket.Conn) {
 	mu.Lock()
 	defer mu.Unlock()
 	for client := range clients {
 		if client != sender {
-			client.WriteMessage(mt, msg)
+			err := client.WriteMessage(mt, msg)
+			if err != nil {
+				log.Println("Broadcast error:", err)
+				client.Close()
+				delete(clients, client)
+			}
 		}
 	}
 }
@@ -48,15 +67,10 @@ func broadcast(mt int, msg []byte, sender *websocket.Conn) {
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "10000"
+		port = "8080"
 	}
-	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		conn, _ := upgrader.Upgrade(w, r, nil)
-		mu.Lock()
-		clients[conn] = true
-		mu.Unlock()
-		handleSignaling(w, r)
-	})
+
+	http.HandleFunc("/ws", handleSignaling)
 	log.Printf("Signaling server starting on :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
