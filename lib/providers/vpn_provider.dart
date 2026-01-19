@@ -1,17 +1,22 @@
-import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import '../services/vpn_platform_service.dart';
-import '../utils/ip_selector.dart';
 import 'dart:async';
-import 'dart:math';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 
-enum VpnConnectionState { disconnected, connecting, connected, reconnecting, error }
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-/// VPN Provider with real native VPN integration
-/// Handles state persistence, auto-reconnect, and background operation
+enum VpnConnectionState {
+  disconnected,
+  connecting,
+  connected,
+  reconnecting,
+  error,
+}
+
 class VpnProvider extends ChangeNotifier {
-  final VpnPlatformService _vpnService = VpnPlatformService();
-  
   VpnConnectionState _connectionState = VpnConnectionState.disconnected;
   String _currentIp = '---';
   int _latency = 0;
@@ -20,20 +25,22 @@ class VpnProvider extends ChangeNotifier {
   DateTime? _connectedSince;
   bool _autoConnect = false;
   bool _killSwitch = false;
-  String? _errorMessage;
-  Timer? _statusPollTimer;
-  bool _isInitialized = false;
-  bool _reconnectInProgress = false;
-  DateTime? _lastReconnectAttempt;
-  static const Duration _minReconnectDelay = Duration(seconds: 5);
-  static const Duration _maxReconnectWindow = Duration(minutes: 5);
+  String _serverEndpoint = 'wss://chakra-1zg5.onrender.com/ws';
 
-  // Server configuration (single server model)
-  static const String serverPublicKey = 'YFjlqgULP4hKxYHGM1e/MtzVfuzBMjSysPxSGUnn6lc=';
-  static const String defaultServerEndpoint = 'chakravpn.duckdns.org:51820'; // Default endpoint
-  
-  String _serverEndpoint = defaultServerEndpoint;
-  static const int _maxIpRetries = 8; // Maximum IP retry attempts
+  // WebRTC & Platform Channels
+  WebSocket? _signalingSocket;
+  RTCPeerConnection? _peerConnection;
+  RTCDataChannel? _dataChannel;
+  static const _controlChannel = MethodChannel('com.chakra.vpn/control');
+  static const _packetChannel = EventChannel('com.chakra.vpn/packets');
+  StreamSubscription? _packetSubscription;
+
+  // Signaling Config
+  final Map<String, dynamic> _iceServers = {
+    'iceServers': [
+      {'urls': 'stun:stun.l.google.com:19302'},
+    ],
+  };
 
   // Getters
   VpnConnectionState get connectionState => _connectionState;
@@ -44,7 +51,6 @@ class VpnProvider extends ChangeNotifier {
   DateTime? get connectedSince => _connectedSince;
   bool get autoConnect => _autoConnect;
   bool get killSwitch => _killSwitch;
-  String? get errorMessage => _errorMessage;
   String get serverEndpoint => _serverEndpoint;
 
   bool get isConnected => _connectionState == VpnConnectionState.connected;
@@ -93,319 +99,216 @@ class VpnProvider extends ChangeNotifier {
       case VpnConnectionState.reconnecting:
         return 'Reconnecting...';
       case VpnConnectionState.error:
-        return 'Error';
+        return 'Connection Error';
     }
   }
 
   VpnProvider() {
-    _initialize();
-  }
-
-  /// Initialize VPN service and restore state
-  Future<void> _initialize() async {
-    if (_isInitialized) return;
-    
-    try {
-      await _loadSettings();
-      
-      // Set up status callback
-      _vpnService.setStatusCallback(_onStatusUpdate);
-      
-      // Initialize platform service
-      await _vpnService.initialize();
-      
-      // Restore VPN state on app start
-      await _restoreVpnState();
-      
-      // Start periodic status polling
-      _startStatusPolling();
-      
-      _isInitialized = true;
-    } catch (e) {
-      print('Failed to initialize VPN provider: $e');
-      _errorMessage = 'Initialization failed: $e';
-      _connectionState = VpnConnectionState.error;
-      notifyListeners();
-    }
-  }
-
-  /// Restore VPN state from persistence
-  /// Checks user intent (shouldBeConnected) and actual VPN status
-  Future<void> _restoreVpnState() async {
-    final prefs = await SharedPreferences.getInstance();
-    final shouldBeConnected = prefs.getBool('should_be_connected') ?? false;
-    
-    if (!shouldBeConnected) {
-      // User didn't want VPN connected, ensure it's disconnected
-      final status = await _vpnService.getStatus();
-      if (status['status'] != 'disconnected') {
-        await _vpnService.disconnect();
-      }
-      _updateStateFromStatus(status);
-      return;
-    }
-    
-    // User wanted VPN connected, check actual status
-    final status = await _vpnService.getStatus();
-    final actualStatus = status['status'] as String?;
-    
-    if (actualStatus == 'connected') {
-      // VPN is up, restore UI state
-      _updateStateFromStatus(status);
-    } else if (actualStatus == 'disconnected' || actualStatus == null) {
-      // VPN is down but user wants it connected -> auto-reconnect
-      _connectionState = VpnConnectionState.reconnecting;
-      notifyListeners();
-      await connect();
-    } else {
-      // Other states (connecting, reconnecting, error)
-      _updateStateFromStatus(status);
-    }
-  }
-
-  /// Handle status updates from native side
-  void _onStatusUpdate(Map<String, dynamic> status) {
-    _updateStateFromStatus(status);
-  }
-
-  /// Update internal state from native status
-  void _updateStateFromStatus(Map<String, dynamic> status) {
-    final statusStr = status['status'] as String? ?? 'disconnected';
-    
-    switch (statusStr) {
-      case 'connected':
-        _connectionState = VpnConnectionState.connected;
-        _currentIp = status['publicIp'] as String? ?? '---';
-        _latency = status['latency'] as int? ?? 0;
-        _uploadBytes = status['bytesSent'] as int? ?? 0;
-        _downloadBytes = status['bytesReceived'] as int? ?? 0;
-        final uptimeSeconds = status['uptime'] as int? ?? 0;
-        if (_connectedSince == null && uptimeSeconds > 0) {
-          _connectedSince = DateTime.now().subtract(Duration(seconds: uptimeSeconds));
-        }
-        _errorMessage = null;
-        break;
-      case 'connecting':
-        _connectionState = VpnConnectionState.connecting;
-        break;
-      case 'reconnecting':
-        _connectionState = VpnConnectionState.reconnecting;
-        break;
-      case 'disconnected':
-        _connectionState = VpnConnectionState.disconnected;
-        _currentIp = '---';
-        _latency = 0;
-        _connectedSince = null;
-        _uploadBytes = 0;
-        _downloadBytes = 0;
-        _errorMessage = null;
-        break;
-      case 'error':
-        _connectionState = VpnConnectionState.error;
-        _errorMessage = status['errorMessage'] as String? ?? 'Unknown error';
-        break;
-    }
-    
-    notifyListeners();
-  }
-
-  /// Start periodic status polling (fallback if event stream fails)
-  void _startStatusPolling() {
-    _statusPollTimer?.cancel();
-    _statusPollTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
-      if (_connectionState == VpnConnectionState.connected ||
-          _connectionState == VpnConnectionState.reconnecting ||
-          _connectionState == VpnConnectionState.connecting) {
-        try {
-          final status = await _vpnService.getStatus();
-          _updateStateFromStatus(status);
-        } catch (e) {
-          print('Status polling error: $e');
-        }
-      }
-    });
+    _loadSettings();
   }
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     _autoConnect = prefs.getBool('auto_connect') ?? false;
     _killSwitch = prefs.getBool('kill_switch') ?? false;
-    _serverEndpoint = prefs.getString('server_endpoint') ?? defaultServerEndpoint;
-    
-    // Restore kill switch state to native layer
-    await _vpnService.setKillSwitchEnabled(_killSwitch);
-    
+    _serverEndpoint =
+        prefs.getString('server_endpoint') ??
+        'wss://chakra-1zg5.onrender.com/ws';
     notifyListeners();
   }
 
-  /// Connect VPN
-  /// Generates/retrieves keypair, saves user intent, and starts VPN tunnel
   Future<void> connect() async {
     if (_connectionState == VpnConnectionState.connected) return;
-    if (_connectionState == VpnConnectionState.connecting) return;
-    
-    // Prevent reconnect storms: check if reconnect is in progress or too soon since last attempt
-    if (_reconnectInProgress) {
-      print('Reconnect already in progress, skipping');
-      return;
-    }
-    
-    final now = DateTime.now();
-    if (_lastReconnectAttempt != null) {
-      final timeSinceLastAttempt = now.difference(_lastReconnectAttempt!);
-      if (timeSinceLastAttempt < _minReconnectDelay) {
-        print('Reconnect throttled: ${timeSinceLastAttempt.inSeconds}s since last attempt (min: ${_minReconnectDelay.inSeconds}s)');
-        return;
-      }
-      
-      // Reset if we're outside the max window (allows fresh attempts after extended period)
-      if (timeSinceLastAttempt > _maxReconnectWindow) {
-        _lastReconnectAttempt = null;
-      }
-    }
 
-    _reconnectInProgress = true;
-    _lastReconnectAttempt = DateTime.now();
-    
+    _connectionState = VpnConnectionState.connecting;
+    notifyListeners();
+
     try {
-      // Request permission (Android)
-      final hasPermission = await _vpnService.requestPermission();
-      if (!hasPermission) {
-        _connectionState = VpnConnectionState.error;
-        _errorMessage = 'VPN permission denied';
-        _reconnectInProgress = false;
-        notifyListeners();
-        return;
+      // 1. Connect to Signaling Server
+      String url = _serverEndpoint;
+      if (!url.startsWith('ws')) {
+        url = 'wss://$url';
       }
 
-      _connectionState = VpnConnectionState.connecting;
-      notifyListeners();
-
-      // Get or create WireGuard keypair
-      final keypair = await _vpnService.getOrCreateKeypair();
-      final clientPrivateKey = keypair['privateKey']!;
-      final clientPublicKey = keypair['publicKey']!;
-
-      // Save user intent: user wants VPN connected
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('should_be_connected', true);
-
-      // Automatic IP assignment with collision detection
-      String? assignedIp;
-      String currentCandidateIp = await IpSelector.getInitialCandidateIp();
-      bool connectionSuccess = false;
-      
-      // Add small random delay to reduce simultaneous collisions
-      final random = Random();
-      await Future.delayed(Duration(milliseconds: random.nextInt(500)));
-      
-      for (int attempt = 0; attempt < _maxIpRetries; attempt++) {
-        try {
-          print('Attempting connection with IP: $currentCandidateIp (attempt ${attempt + 1}/$_maxIpRetries)');
-          
-          // Attempt connection with current candidate IP
-          final success = await _vpnService.connect(
-            endpoint: _serverEndpoint,
-            clientPrivateKey: clientPrivateKey,
-            clientPublicKey: clientPublicKey,
-            clientIpAddress: currentCandidateIp,
-            allowedIps: '0.0.0.0/0', // Full tunnel: route all traffic through VPN
-          );
-          
-          if (success) {
-            // Connection successful - save this IP
-            assignedIp = currentCandidateIp;
-            await IpSelector.saveAssignedIp(currentCandidateIp);
-            connectionSuccess = true;
-            print('Successfully connected with IP: $currentCandidateIp');
-            break;
-          } else {
-            // Connection failed - try next IP (treat as potential collision)
-            print('Connection failed with IP $currentCandidateIp, trying next candidate');
-            currentCandidateIp = await IpSelector.getNextCandidateIp(
-              currentCandidateIp,
-              randomize: attempt == 0, // Randomize on first retry to reduce collisions
-            );
-            
-            // Small delay before next attempt
-            await Future.delayed(Duration(milliseconds: 300 + random.nextInt(200)));
+      _signalingSocket = await WebSocket.connect(url);
+      _signalingSocket?.listen(
+        (data) => _handleSignalingMessage(data),
+        onDone: () {
+          if (_connectionState != VpnConnectionState.disconnected) {
+            disconnect();
           }
-        } catch (e) {
-          // Connection error - try next IP
-          print('Connection error with IP $currentCandidateIp: $e, trying next candidate');
-          currentCandidateIp = await IpSelector.getNextCandidateIp(
-            currentCandidateIp,
-            randomize: attempt == 0,
-          );
-          
-          await Future.delayed(Duration(milliseconds: 300 + random.nextInt(200)));
-        }
-      }
+        },
+        onError: (e) {
+          print('Signaling Socket Error: $e');
+          _setErrorState();
+        },
+      );
 
-      if (connectionSuccess && assignedIp != null) {
-        // Status will be updated via event stream
-        _connectedSince = DateTime.now();
-        _reconnectInProgress = false;
-      } else {
-        _connectionState = VpnConnectionState.error;
-        _errorMessage = 'Failed to connect: No available IP found after $_maxIpRetries attempts';
-        await prefs.setBool('should_be_connected', false);
-        _reconnectInProgress = false;
-        notifyListeners();
-      }
+      // 2. Create Peer Connection
+      _peerConnection = await createPeerConnection(_iceServers, {
+        'optional': [],
+      });
+
+      _peerConnection?.onIceCandidate = (candidate) {
+        _sendSignalingMessage({
+          'type': 'candidate',
+          'candidate': {
+            'candidate': candidate.candidate,
+            'sdpMid': candidate.sdpMid,
+            'sdpMLineIndex': candidate.sdpMLineIndex,
+          },
+        });
+      };
+
+      _peerConnection?.onConnectionState = (state) {
+        if (state ==
+                RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
+            state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+          disconnect();
+        }
+      };
+
+      // 3. Create Data Channel
+      final dcInit =
+          RTCDataChannelInit()
+            ..ordered = false
+            ..maxRetransmits = 0;
+
+      _dataChannel = await _peerConnection?.createDataChannel('vpn', dcInit);
+      _dataChannel?.onDataChannelState = (state) async {
+        if (state == RTCDataChannelState.RTCDataChannelOpen) {
+          print('Data Channel OPEN - Starting VPN Service');
+          await _startVpnService();
+        } else if (state == RTCDataChannelState.RTCDataChannelClosed) {
+          disconnect();
+        }
+      };
+
+      _dataChannel?.onMessage = (RTCDataChannelMessage message) {
+        if (message.isBinary) {
+          _uploadBytes += message.binary.length;
+          _downloadBytes += message.binary.length;
+          _sendPacketToNative(message.binary);
+        }
+      };
+
+      // 4. Create Offer
+      final offer = await _peerConnection?.createOffer({
+        'offerToReceiveVideo': 0,
+        'offerToReceiveAudio': 0,
+      });
+      await _peerConnection?.setLocalDescription(offer!);
+      _sendSignalingMessage({'type': 'offer', 'sdp': offer?.sdp});
     } catch (e) {
-      _connectionState = VpnConnectionState.error;
-      _errorMessage = 'Connection error: $e';
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('should_be_connected', false);
-      _reconnectInProgress = false;
-      notifyListeners();
+      print('Connection Error: $e');
+      _setErrorState();
     }
   }
 
-  /// Disconnect VPN
-  /// Saves user intent and stops VPN tunnel
-  Future<void> disconnect() async {
-    if (_connectionState == VpnConnectionState.disconnected) return;
-
-    try {
-      // Save user intent: user wants VPN disconnected
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('should_be_connected', false);
-
-      final success = await _vpnService.disconnect();
-      
-      if (success) {
+  void _setErrorState() {
+    _connectionState = VpnConnectionState.error;
+    notifyListeners();
+    Future.delayed(const Duration(seconds: 3), () {
+      if (_connectionState == VpnConnectionState.error) {
         _connectionState = VpnConnectionState.disconnected;
-        _currentIp = '---';
-        _latency = 0;
-        _connectedSince = null;
-        _uploadBytes = 0;
-        _downloadBytes = 0;
-        _errorMessage = null;
-        notifyListeners();
-      } else {
-        _connectionState = VpnConnectionState.error;
-        _errorMessage = 'Failed to disconnect';
         notifyListeners();
       }
-    } catch (e) {
-      _connectionState = VpnConnectionState.error;
-      _errorMessage = 'Disconnect error: $e';
+    });
+  }
+
+  Future<void> _startVpnService() async {
+    try {
+      await _controlChannel.invokeMethod('start');
+
+      _packetSubscription = _packetChannel.receiveBroadcastStream().listen((
+        dynamic event,
+      ) {
+        if (event is List<int>) {
+          final bytes = Uint8List.fromList(event);
+          _uploadBytes += bytes.length;
+          _sendPacketToDataChannel(bytes);
+        }
+      });
+
+      _connectionState = VpnConnectionState.connected;
+      _connectedSince = DateTime.now();
+      _currentIp = '10.0.0.2';
       notifyListeners();
+    } catch (e) {
+      print('Failed to start VPN Service: $e');
+      disconnect();
     }
+  }
+
+  Future<void> disconnect() async {
+    try {
+      await _controlChannel.invokeMethod('stop');
+    } catch (e) {}
+
+    await _packetSubscription?.cancel();
+    _packetSubscription = null;
+
+    await _dataChannel?.close();
+    await _peerConnection?.close();
+    await _signalingSocket?.close();
+
+    _dataChannel = null;
+    _peerConnection = null;
+    _signalingSocket = null;
+
+    _connectionState = VpnConnectionState.disconnected;
+    _currentIp = '---';
+    _connectedSince = null;
+    notifyListeners();
+  }
+
+  void _handleSignalingMessage(dynamic data) async {
+    try {
+      final msg = jsonDecode(data);
+      if (msg['type'] == 'answer') {
+        await _peerConnection?.setRemoteDescription(
+          RTCSessionDescription(msg['sdp'], 'answer'),
+        );
+      } else if (msg['type'] == 'candidate') {
+        final candidate = msg['candidate'];
+        await _peerConnection?.addCandidate(
+          RTCIceCandidate(
+            candidate['candidate'],
+            candidate['sdpMid'],
+            candidate['sdpMLineIndex'],
+          ),
+        );
+      }
+    } catch (e) {
+      print('Signaling Error: $e');
+    }
+  }
+
+  void _sendSignalingMessage(Map<String, dynamic> msg) {
+    _signalingSocket?.add(jsonEncode(msg));
+  }
+
+  void _sendPacketToDataChannel(Uint8List packet) {
+    if (_dataChannel?.state == RTCDataChannelState.RTCDataChannelOpen) {
+      _dataChannel?.send(RTCDataChannelMessage.fromBinary(packet));
+    }
+  }
+
+  void _sendPacketToNative(Uint8List packet) {
+    _controlChannel.invokeMethod('write', {'packet': packet});
   }
 
   Future<void> toggleConnection() async {
     if (_connectionState == VpnConnectionState.connected ||
-        _connectionState == VpnConnectionState.reconnecting) {
+        _connectionState == VpnConnectionState.connecting) {
       await disconnect();
-    } else if (_connectionState == VpnConnectionState.disconnected ||
-               _connectionState == VpnConnectionState.error) {
+    } else {
       await connect();
     }
   }
 
+  // Not used in this version but kept for compatibility
+  void simulateReconnection() {}
   Future<void> setAutoConnect(bool value) async {
     _autoConnect = value;
     final prefs = await SharedPreferences.getInstance();
@@ -417,24 +320,13 @@ class VpnProvider extends ChangeNotifier {
     _killSwitch = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('kill_switch', value);
-    
-    // Notify native layer about kill switch state
-    await _vpnService.setKillSwitchEnabled(value);
-    
     notifyListeners();
   }
 
-  Future<void> setServerEndpoint(String endpoint) async {
-    _serverEndpoint = endpoint;
+  Future<void> setServerEndpoint(String value) async {
+    _serverEndpoint = value;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('server_endpoint', endpoint);
+    await prefs.setString('server_endpoint', value);
     notifyListeners();
-  }
-
-  @override
-  void dispose() {
-    _statusPollTimer?.cancel();
-    _vpnService.dispose();
-    super.dispose();
   }
 }

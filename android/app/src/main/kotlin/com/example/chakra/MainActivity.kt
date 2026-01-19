@@ -1,119 +1,74 @@
 package com.example.chakra
 
 import android.content.Intent
-import android.os.Bundle
+import android.net.VpnService
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
-    private val METHOD_CHANNEL = "com.example.chakra/vpn"
-    private val STATUS_CHANNEL = "com.example.chakra/vpn_status"
-    
-    private var statusEventSink: EventChannel.EventSink? = null
-    private var statusUpdateRunnable: Runnable? = null
-    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val CONTROL_CHANNEL = "com.chakra.vpn/control"
+    private val PACKET_CHANNEL = "com.chakra.vpn/packets"
+    private val VPN_REQUEST_CODE = 101
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        
-        // Method channel for VPN operations
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL).setMethodCallHandler { call, result ->
+
+        // Control Channel
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CONTROL_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
-                "initialize" -> {
-                    // Start status update stream
-                    startStatusUpdates()
+                "start" -> {
+                    startVpn()
                     result.success(true)
                 }
-                "requestPermission" -> {
-                    // VPN permission is requested when starting VpnService
+                "stop" -> {
+                    val intent = Intent(this, ChakraVpnService::class.java)
+                    intent.action = "STOP"
+                    startService(intent)
                     result.success(true)
                 }
-                "connect" -> {
-                    val endpoint = call.argument<String>("endpoint") ?: ""
-                    val clientPrivateKey = call.argument<String>("clientPrivateKey") ?: ""
-                    val clientPublicKey = call.argument<String>("clientPublicKey") ?: ""
-                    val clientIpAddress = call.argument<String>("clientIpAddress") ?: ""
-                    val allowedIps = call.argument<String>("allowedIps") ?: "0.0.0.0/0"
-                    
-                    val intent = Intent(this, ChakraForegroundService::class.java).apply {
-                        action = ChakraForegroundService.ACTION_CONNECT
-                        putExtra("endpoint", endpoint)
-                        putExtra("clientPrivateKey", clientPrivateKey)
-                        putExtra("clientPublicKey", clientPublicKey)
-                        putExtra("clientIpAddress", clientIpAddress)
-                        putExtra("allowedIps", allowedIps)
+                "write" -> {
+                    val packet = call.argument<ByteArray>("packet")
+                    if (packet != null) {
+                        PacketProcessor.writePacket(packet)
+                        result.success(true)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "Packet data is null", null)
                     }
-                    startForegroundService(intent)
-                    result.success(true)
                 }
-                "disconnect" -> {
-                    val intent = Intent(this, ChakraForegroundService::class.java).apply {
-                        action = ChakraForegroundService.ACTION_DISCONNECT
-                    }
-                    startForegroundService(intent)
-                    result.success(true)
-                }
-                "getStatus" -> {
-                    val status = ChakraForegroundService.getCurrentStatus()
-                    result.success(status)
-                }
-                "getOrCreateKeypair" -> {
-                    val keypair = ChakraVpnBackend.getOrCreateKeypair(this)
-                    result.success(keypair)
-                }
-                "setKillSwitchEnabled" -> {
-                    val enabled = call.argument<Boolean>("enabled") ?: false
-                    // Forward to foreground service
-                    val intent = Intent(this, ChakraForegroundService::class.java).apply {
-                        action = ChakraForegroundService.ACTION_SET_KILL_SWITCH
-                        putExtra("enabled", enabled)
-                    }
-                    startForegroundService(intent)
-                    result.success(true)
-                }
-                else -> {
-                    result.notImplemented()
-                }
+                else -> result.notImplemented()
             }
         }
-        
-        // Event channel for status updates
-        EventChannel(flutterEngine.dartExecutor.binaryMessenger, STATUS_CHANNEL).setStreamHandler(
+
+        // Packet Stream Channel
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, PACKET_CHANNEL).setStreamHandler(
             object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-                    statusEventSink = events
-                    startStatusUpdates()
+                    PacketProcessor.registerSink(events)
                 }
-                
+
                 override fun onCancel(arguments: Any?) {
-                    statusEventSink = null
-                    stopStatusUpdates()
+                    PacketProcessor.registerSink(null)
                 }
             }
         )
     }
-    
-    private fun startStatusUpdates() {
-        stopStatusUpdates()
-        statusUpdateRunnable = object : Runnable {
-            override fun run() {
-                val status = ChakraForegroundService.getCurrentStatus()
-                statusEventSink?.success(status)
-                handler.postDelayed(this, 2000) // Update every 2 seconds
-            }
+
+    private fun startVpn() {
+        val intent = VpnService.prepare(this)
+        if (intent != null) {
+            startActivityForResult(intent, VPN_REQUEST_CODE)
+        } else {
+            onActivityResult(VPN_REQUEST_CODE, RESULT_OK, null)
         }
-        handler.post(statusUpdateRunnable!!)
     }
-    
-    private fun stopStatusUpdates() {
-        statusUpdateRunnable?.let { handler.removeCallbacks(it) }
-        statusUpdateRunnable = null
-    }
-    
-    override fun onDestroy() {
-        super.onDestroy()
-        stopStatusUpdates()
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == VPN_REQUEST_CODE && resultCode == RESULT_OK) {
+            val intent = Intent(this, ChakraVpnService::class.java)
+            startService(intent)
+        }
     }
 }
