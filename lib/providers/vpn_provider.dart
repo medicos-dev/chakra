@@ -170,13 +170,16 @@ class VpnProvider extends ChangeNotifier {
       _remoteCandidates.clear();
 
       _peerConnection?.onIceCandidate = (candidate) {
-        _sendSignalingMessage({
-          'type': 'candidate',
-          'candidate': {
-            'candidate': candidate.candidate,
-            'sdpMid': candidate.sdpMid,
-            'sdpMLineIndex': candidate.sdpMLineIndex,
-          },
+        // Wait 1 second to ensure the laptop has processed the Offer
+        Future.delayed(const Duration(seconds: 1), () {
+          _sendSignalingMessage({
+            'type': 'candidate',
+            'candidate': {
+              'candidate': candidate.candidate,
+              'sdpMid': candidate.sdpMid,
+              'sdpMLineIndex': candidate.sdpMLineIndex,
+            },
+          });
         });
       };
 
