@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/vpn_provider.dart';
@@ -5,6 +6,149 @@ import '../config/app_colors.dart';
 
 class StatusBarWidget extends StatelessWidget {
   const StatusBarWidget({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<VpnProvider>(
+      builder: (context, vpn, child) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: AppColors.glassWhite,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: AppColors.glassBorder),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Connection Status Row
+                  Row(
+                    children: [
+                      // Status indicator dot
+                      Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: _getStatusColor(vpn.connectionState),
+                          shape: BoxShape.circle,
+                          boxShadow:
+                              vpn.isConnected
+                                  ? [
+                                    BoxShadow(
+                                      color: AppColors.accent.withOpacity(0.6),
+                                      blurRadius: 8,
+                                      spreadRadius: 2,
+                                    ),
+                                  ]
+                                  : null,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        vpn.statusText,
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: _getStatusColor(vpn.connectionState),
+                        ),
+                      ),
+                      const Spacer(),
+                      if (vpn.isConnected)
+                        Text(
+                          vpn.currentIp,
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 13,
+                            fontWeight: FontWeight.w400,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                    ],
+                  ),
+
+                  // Speed Gauges (only when connected)
+                  if (vpn.isConnected) ...[
+                    const SizedBox(height: 20),
+                    Container(height: 1, color: AppColors.glassBorder),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        // Upload
+                        Expanded(
+                          child: _buildSpeedGauge(
+                            icon: Icons.arrow_upward_rounded,
+                            label: 'Upload',
+                            value: vpn.formattedUploadSpeed,
+                          ),
+                        ),
+                        // Divider
+                        Container(
+                          width: 1,
+                          height: 50,
+                          color: AppColors.glassBorder,
+                        ),
+                        // Download
+                        Expanded(
+                          child: _buildSpeedGauge(
+                            icon: Icons.arrow_downward_rounded,
+                            label: 'Download',
+                            value: vpn.formattedDownloadSpeed,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSpeedGauge({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 14, color: AppColors.accent),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: AppColors.textTertiary,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          value,
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textPrimary,
+          ),
+        ),
+      ],
+    );
+  }
 
   Color _getStatusColor(VpnConnectionState state) {
     switch (state) {
@@ -17,215 +161,7 @@ class StatusBarWidget extends StatelessWidget {
       case VpnConnectionState.reconnecting:
         return AppColors.reconnecting;
       case VpnConnectionState.error:
-        // Treat error as disconnected in terms of color
-        return AppColors.disconnected;
+        return AppColors.error;
     }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Consumer<VpnProvider>(
-      builder: (context, vpn, child) {
-        return Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16),
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.08),
-                blurRadius: 20,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              // Connection Status Row
-              Row(
-                children: [
-                  Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      color: _getStatusColor(vpn.connectionState),
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: _getStatusColor(
-                            vpn.connectionState,
-                          ).withValues(alpha: 0.5),
-                          blurRadius: 8,
-                          spreadRadius: 2,
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          vpn.statusText,
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: _getStatusColor(vpn.connectionState),
-                          ),
-                        ),
-                        if (vpn.isConnected)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              'Protected in background',
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Theme.of(context).textTheme.bodySmall?.color?.withValues(alpha: 0.7),
-                                fontSize: 11,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  if (vpn.isConnected)
-                    Text(
-                      vpn.connectionDuration,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodyMedium?.copyWith(fontFamily: 'monospace'),
-                    ),
-                ],
-              ),
-              // Background protection info
-              if (vpn.isConnected || vpn.isReconnecting) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.info_outline_rounded,
-                        size: 16,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'VPN remains active even when app is closed',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context).colorScheme.primary,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-              if (vpn.isConnected) ...[
-                const SizedBox(height: 20),
-                const Divider(height: 1),
-                const SizedBox(height: 20),
-                // Stats Grid
-                Row(
-                  children: [
-                    _buildStatItem(
-                      context,
-                      icon: Icons.public_rounded,
-                      label: 'IP Address',
-                      value: vpn.currentIp,
-                    ),
-                    _buildStatItem(
-                      context,
-                      icon: Icons.speed_rounded,
-                      label: 'Latency',
-                      value: '${vpn.latency} ms',
-                      valueColor:
-                          vpn.latency < 50
-                              ? AppColors.connected
-                              : vpn.latency < 100
-                              ? AppColors.connecting
-                              : AppColors.disconnected,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    _buildStatItem(
-                      context,
-                      icon: Icons.arrow_upward_rounded,
-                      label: 'Upload',
-                      value: vpn.formattedUpload,
-                    ),
-                    _buildStatItem(
-                      context,
-                      icon: Icons.arrow_downward_rounded,
-                      label: 'Download',
-                      value: vpn.formattedDownload,
-                    ),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildStatItem(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-    required String value,
-    Color? valueColor,
-  }) {
-    return Expanded(
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Theme.of(
-                context,
-              ).colorScheme.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              icon,
-              size: 18,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).textTheme.bodyMedium?.color,
-                ),
-              ),
-              Text(
-                value,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: valueColor,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
   }
 }

@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 
 enum VpnConnectionState {
   disconnected,
@@ -22,10 +24,16 @@ class VpnProvider extends ChangeNotifier {
   int _latency = 0;
   int _uploadBytes = 0;
   int _downloadBytes = 0;
+  int _uploadSpeed = 0; // bytes per second
+  int _downloadSpeed = 0; // bytes per second
   DateTime? _connectedSince;
   bool _autoConnect = false;
   bool _killSwitch = false;
   String _serverEndpoint = 'wss://chakra-1zg5.onrender.com/ws';
+
+  // Unique Device ID
+  late final String _deviceId =
+      "Phone_${DateTime.now().millisecondsSinceEpoch}";
 
   // WebRTC & Platform Channels
   WebSocket? _signalingSocket;
@@ -35,6 +43,14 @@ class VpnProvider extends ChangeNotifier {
   static const _packetChannel = EventChannel('com.chakra.vpn/packets');
   StreamSubscription? _packetSubscription;
   Timer? _connectionTimeoutTimer;
+  Timer? _statsTimer;
+
+  // Stats tracking for speed calculation
+  int _lastBytesSent = 0;
+  int _lastBytesReceived = 0;
+
+  // Network Connectivity
+  StreamSubscription? _connectivitySubscription;
 
   // Trickle ICE Queue
   final List<RTCIceCandidate> _remoteCandidates = [];
@@ -53,6 +69,8 @@ class VpnProvider extends ChangeNotifier {
   int get latency => _latency;
   int get uploadBytes => _uploadBytes;
   int get downloadBytes => _downloadBytes;
+  int get uploadSpeed => _uploadSpeed;
+  int get downloadSpeed => _downloadSpeed;
   DateTime? get connectedSince => _connectedSince;
   bool get autoConnect => _autoConnect;
   bool get killSwitch => _killSwitch;
@@ -93,6 +111,20 @@ class VpnProvider extends ChangeNotifier {
     return '${(_downloadBytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 
+  String get formattedUploadSpeed {
+    if (_uploadSpeed < 1024) return '$_uploadSpeed B/s';
+    if (_uploadSpeed < 1024 * 1024)
+      return '${(_uploadSpeed / 1024).toStringAsFixed(1)} KB/s';
+    return '${(_uploadSpeed / (1024 * 1024)).toStringAsFixed(1)} MB/s';
+  }
+
+  String get formattedDownloadSpeed {
+    if (_downloadSpeed < 1024) return '$_downloadSpeed B/s';
+    if (_downloadSpeed < 1024 * 1024)
+      return '${(_downloadSpeed / 1024).toStringAsFixed(1)} KB/s';
+    return '${(_downloadSpeed / (1024 * 1024)).toStringAsFixed(1)} MB/s';
+  }
+
   String get statusText {
     switch (_connectionState) {
       case VpnConnectionState.disconnected:
@@ -110,6 +142,7 @@ class VpnProvider extends ChangeNotifier {
 
   VpnProvider() {
     _loadSettings();
+    _initConnectivity();
   }
 
   Future<void> _loadSettings() async {
@@ -122,8 +155,53 @@ class VpnProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Initialize network connectivity listener for auto-reconnect
+  void _initConnectivity() {
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((
+      List<ConnectivityResult> results,
+    ) {
+      // If connected and network changed, refresh the tunnel
+      if (isConnected && results.isNotEmpty) {
+        print('Network changed, refreshing tunnel...');
+        _refreshConnection();
+      }
+    });
+  }
+
+  /// Refresh connection on network change
+  Future<void> _refreshConnection() async {
+    await stopConnection();
+    await connect();
+  }
+
+  Future<void> stopConnection() async {
+    // Stop background service notification
+    try {
+      FlutterBackgroundService().invoke("stopService");
+    } catch (e) {
+      print('Background service stop error: $e');
+    }
+
+    _connectionTimeoutTimer?.cancel();
+    _statsTimer?.cancel();
+    await _signalingSocket?.close();
+    await _dataChannel?.close();
+    await _peerConnection?.close();
+    _peerConnection = null;
+    _dataChannel = null;
+    _signalingSocket = null;
+
+    _uploadSpeed = 0;
+    _downloadSpeed = 0;
+    _lastBytesSent = 0;
+    _lastBytesReceived = 0;
+
+    notifyListeners();
+  }
+
   Future<void> connect() async {
-    if (_connectionState == VpnConnectionState.connected) return;
+    // CRITICAL: Always clean up previous zombies first
+    await stopConnection();
 
     _connectionState = VpnConnectionState.connecting;
     notifyListeners();
@@ -155,8 +233,6 @@ class VpnProvider extends ChangeNotifier {
         if (_connectionState != VpnConnectionState.connected) {
           print('Connection Timeout (15s) - Retrying...');
           disconnect();
-          // Optional: Retry once automatically? For now, just disconnect and let user/auto-reconnect handle it.
-          // If auto-connect is on, it might loop, so be careful.
           _setErrorState();
         }
       });
@@ -174,6 +250,8 @@ class VpnProvider extends ChangeNotifier {
         Future.delayed(const Duration(seconds: 1), () {
           _sendSignalingMessage({
             'type': 'candidate',
+            'from': _deviceId,
+            'to': 'laptop_gateway',
             'candidate': {
               'candidate': candidate.candidate,
               'sdpMid': candidate.sdpMid,
@@ -209,7 +287,6 @@ class VpnProvider extends ChangeNotifier {
 
       _dataChannel?.onMessage = (RTCDataChannelMessage message) {
         if (message.isBinary) {
-          _uploadBytes += message.binary.length;
           _downloadBytes += message.binary.length;
           _sendPacketToNative(message.binary);
         }
@@ -221,7 +298,12 @@ class VpnProvider extends ChangeNotifier {
         'offerToReceiveAudio': 0,
       });
       await _peerConnection?.setLocalDescription(offer!);
-      _sendSignalingMessage({'type': 'offer', 'sdp': offer?.sdp});
+      _sendSignalingMessage({
+        'type': 'offer',
+        'from': _deviceId,
+        'to': 'laptop_gateway',
+        'sdp': offer?.sdp,
+      });
     } catch (e) {
       print('Connection Error: $e');
       _setErrorState();
@@ -258,6 +340,10 @@ class VpnProvider extends ChangeNotifier {
       _currentIp = '10.0.0.2';
 
       _connectionTimeoutTimer?.cancel();
+
+      // Start stats timer for speed calculation
+      _startStatsTimer();
+
       notifyListeners();
     } catch (e) {
       print('Failed to start VPN Service: $e');
@@ -265,13 +351,77 @@ class VpnProvider extends ChangeNotifier {
     }
   }
 
+  /// Start timer to update speed stats every second
+  void _startStatsTimer() {
+    _statsTimer?.cancel();
+    _lastBytesSent = 0;
+    _lastBytesReceived = 0;
+
+    _statsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _updateStats();
+    });
+  }
+
+  /// Update speed stats from peer connection stats
+  Future<void> _updateStats() async {
+    if (_peerConnection == null) return;
+
+    try {
+      final stats = await _peerConnection!.getStats();
+
+      int totalBytesSent = 0;
+      int totalBytesReceived = 0;
+
+      for (final report in stats) {
+        // Only count bytes from the main transport to avoid double-counting
+        if (report.type == 'transport' || report.type == 'data-channel') {
+          final values = report.values;
+          if (values.containsKey('bytesSent')) {
+            totalBytesSent = (values['bytesSent'] as num).toInt();
+          }
+          if (values.containsKey('bytesReceived')) {
+            totalBytesReceived = (values['bytesReceived'] as num).toInt();
+          }
+          break; // We found the main data flow, no need to keep looping
+        }
+      }
+
+      // Calculate speed (bytes per second)
+      if (_lastBytesSent > 0) {
+        _uploadSpeed = totalBytesSent - _lastBytesSent;
+        if (_uploadSpeed < 0) _uploadSpeed = 0;
+      }
+      if (_lastBytesReceived > 0) {
+        _downloadSpeed = totalBytesReceived - _lastBytesReceived;
+        if (_downloadSpeed < 0) _downloadSpeed = 0;
+      }
+
+      _lastBytesSent = totalBytesSent;
+      _lastBytesReceived = totalBytesReceived;
+
+      notifyListeners();
+    } catch (e) {
+      print('Stats update error: $e');
+    }
+  }
+
   Future<void> disconnect() async {
+    // Stop background service notification
+    try {
+      FlutterBackgroundService().invoke("stopService");
+    } catch (e) {
+      print('Background service stop error: $e');
+    }
+
     try {
       await _controlChannel.invokeMethod('stop');
     } catch (e) {}
 
     await _packetSubscription?.cancel();
     _packetSubscription = null;
+
+    _statsTimer?.cancel();
+    _statsTimer = null;
 
     await _dataChannel?.close();
     await _peerConnection?.close();
@@ -284,6 +434,8 @@ class VpnProvider extends ChangeNotifier {
     _connectionState = VpnConnectionState.disconnected;
     _currentIp = '---';
     _connectedSince = null;
+    _uploadSpeed = 0;
+    _downloadSpeed = 0;
 
     _connectionTimeoutTimer?.cancel();
     _remoteCandidates.clear();
@@ -378,6 +530,9 @@ class VpnProvider extends ChangeNotifier {
   }
 
   void _sendSignalingMessage(Map<String, dynamic> msg) {
+    // Ensure all messages have from/to fields
+    msg['from'] = _deviceId;
+    msg['to'] = msg['to'] ?? 'laptop_gateway';
     _signalingSocket?.add(jsonEncode(msg));
   }
 
@@ -402,6 +557,7 @@ class VpnProvider extends ChangeNotifier {
 
   // Not used in this version but kept for compatibility
   void simulateReconnection() {}
+
   Future<void> setAutoConnect(bool value) async {
     _autoConnect = value;
     final prefs = await SharedPreferences.getInstance();
@@ -421,5 +577,13 @@ class VpnProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('server_endpoint', value);
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _connectivitySubscription?.cancel();
+    _statsTimer?.cancel();
+    _connectionTimeoutTimer?.cancel();
+    super.dispose();
   }
 }

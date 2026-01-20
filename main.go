@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -13,60 +14,65 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
+// Map to store active connections by their Device ID
 var (
-	clients = make(map[*websocket.Conn]bool)
+	clients = make(map[string]*websocket.Conn)
 	mu      sync.Mutex
 )
 
-// Root handler for health checks and Render logs
+type SignalMessage struct {
+	Type string `json:"type"`
+	From string `json:"from"` // Who sent it
+	To   string `json:"to"`   // Who should get it
+}
+
 func handleHome(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Ayy ToTo Signaling Server is LIVE"))
+	w.Write([]byte("Ayy ToTo Multi-Session Server Active"))
 }
 
 func handleSignaling(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("Upgrade error: %v", err)
 		return
 	}
 
-	// Log the connection event
-	log.Printf("NEW PEER CONNECTED: %s", r.RemoteAddr)
-
-	mu.Lock()
-	clients[conn] = true
-	mu.Unlock()
+	var currentDeviceID string
 
 	defer func() {
 		mu.Lock()
-		delete(clients, conn)
+		delete(clients, currentDeviceID)
 		mu.Unlock()
-		log.Printf("PEER DISCONNECTED: %s", r.RemoteAddr)
 		conn.Close()
+		log.Printf("Disconnected: %s", currentDeviceID)
 	}()
 
 	for {
-		mt, message, err := conn.ReadMessage()
+		_, message, err := conn.ReadMessage()
 		if err != nil {
 			break
 		}
 
-		// Filter out internal 'ping' heartbeats from the broadcast
-		if string(message) == `{"type":"ping"}` {
-			continue
+		var msg map[string]interface{}
+		json.Unmarshal(message, &msg)
+
+		// 1. Register device on first message
+		fromID, _ := msg["from"].(string)
+		if fromID != "" && currentDeviceID == "" {
+			currentDeviceID = fromID
+			mu.Lock()
+			clients[currentDeviceID] = conn
+			mu.Unlock()
+			log.Printf("Registered Device: %s", currentDeviceID)
 		}
 
-		broadcast(mt, message, conn)
-	}
-}
-
-func broadcast(mt int, msg []byte, sender *websocket.Conn) {
-	mu.Lock()
-	defer mu.Unlock()
-	for client := range clients {
-		if client != sender {
-			client.WriteMessage(mt, msg)
+		// 2. Targeted Routing
+		targetID, _ := msg["to"].(string)
+		if targetID != "" {
+			mu.Lock()
+			if targetConn, exists := clients[targetID]; exists {
+				targetConn.WriteMessage(websocket.TextMessage, message)
+			}
+			mu.Unlock()
 		}
 	}
 }

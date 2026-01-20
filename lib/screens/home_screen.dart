@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/vpn_provider.dart';
@@ -11,116 +12,143 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return Scaffold(
+      backgroundColor: AppColors.darkBackground,
       body: Stack(
         children: [
-          // Background gradient
+          // Subtle gradient overlay
           Container(
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: isDark
-                    ? [
-                        AppColors.darkBackground,
-                        AppColors.darkSurface.withValues(alpha: 0.3),
-                      ]
-                    : [
-                        AppColors.lightBackground,
-                        AppColors.lightSurface.withValues(alpha: 0.5),
-                      ],
+              gradient: RadialGradient(
+                center: Alignment.topCenter,
+                radius: 1.5,
+                colors: [
+                  AppColors.darkSurface.withOpacity(0.5),
+                  AppColors.darkBackground,
+                ],
               ),
             ),
           ),
+
           // Main content
           SafeArea(
             child: Column(
               children: [
-                // App Bar with improved styling
+                // iOS-style App Bar
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 16, 8),
-                  child: Row(
-                    children: [
-                      // Logo with subtle shadow
-                      Container(
-                        width: 48,
-                        height: 48,
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(14),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.1),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
+                          color: AppColors.glassWhite,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: AppColors.glassBorder),
+                        ),
+                        child: Row(
+                          children: [
+                            // Logo
+                            Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(10),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.3),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: Image.asset(
+                                  'assets/images/logo.png',
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            // App name
+                            const Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'Chakra',
+                                  style: TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.textPrimary,
+                                    letterSpacing: -0.5,
+                                  ),
+                                ),
+                                Text(
+                                  'Premium VPN',
+                                  style: TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w400,
+                                    color: AppColors.textTertiary,
+                                    letterSpacing: 0.3,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const Spacer(),
+                            // Settings button
+                            GestureDetector(
+                              onTap: () {
+                                Navigator.pushNamed(context, '/settings');
+                              },
+                              child: Container(
+                                width: 36,
+                                height: 36,
+                                decoration: BoxDecoration(
+                                  color: AppColors.glassWhite,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: AppColors.glassBorder,
+                                  ),
+                                ),
+                                child: const Icon(
+                                  Icons.tune_rounded,
+                                  size: 18,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
                             ),
                           ],
                         ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: Image.asset(
-                            'assets/images/logo.png',
-                            fit: BoxFit.cover,
-                          ),
-                        ),
                       ),
-                      const SizedBox(width: 14),
-                      // App name with better typography
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Chakra VPN',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: -0.5,
-                            ),
-                          ),
-                          Text(
-                            'Secure. Private. Fast.',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              fontSize: 11,
-                              letterSpacing: 0.3,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const Spacer(),
-                      // Settings button with improved styling
-                      Container(
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? Colors.white.withValues(alpha: 0.1)
-                              : Colors.black.withValues(alpha: 0.05),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: IconButton(
-                          onPressed: () {
-                            Navigator.pushNamed(context, '/settings');
-                          },
-                          icon: const Icon(Icons.settings_rounded),
-                          iconSize: 22,
-                          padding: const EdgeInsets.all(10),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-                const SizedBox(height: 24),
+
                 const Spacer(flex: 2),
-                // Connect Button with better spacing
+
+                // Connect Button (includes timer)
                 const ConnectButton(),
+
                 const Spacer(flex: 2),
-                // Status Bar with improved spacing
+
+                // Status Bar (iOS Island style)
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
                   child: const StatusBarWidget(),
                 ),
-                const SizedBox(height: 32),
               ],
             ),
           ),
+
           // Reconnection overlay
           Consumer<VpnProvider>(
             builder: (context, vpn, child) {
