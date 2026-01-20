@@ -9,7 +9,7 @@ Future<void> initializeService() async {
   await service.configure(
     androidConfiguration: AndroidConfiguration(
       onStart: onStart,
-      autoStart: true, // Auto-start on boot as requested
+      autoStart: false, // Prevent crash on boot/init
       isForegroundMode: true,
       notificationChannelId: 'chakra_vpn_notification',
       initialNotificationTitle: 'Chakra VPN',

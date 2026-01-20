@@ -11,3 +11,12 @@
 
 # Keep EncryptedSharedPreferences classes
 -keep class androidx.security.crypto.** { *; }
+
+# Keep Flutter Background Service
+-keep class id.flutter.flutter_background_service.** { *; }
+
+# Keep VPN and Application classes
+-keep class com.example.chakra.** { *; }
+
+# Keep WebRTC
+-keep class org.webrtc.** { *; }

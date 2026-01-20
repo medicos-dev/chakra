@@ -348,6 +348,12 @@ class VpnProvider extends ChangeNotifier {
 
   Future<void> _startVpnService() async {
     try {
+      // Start Flutter Background Service (Foreground)
+      final service = FlutterBackgroundService();
+      if (!(await service.isRunning())) {
+        service.startService();
+      }
+
       await _controlChannel.invokeMethod('start');
 
       _packetSubscription = _packetChannel.receiveBroadcastStream().listen((

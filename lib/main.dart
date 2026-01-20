@@ -10,7 +10,11 @@ import 'services/background_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await initializeService();
+  try {
+    await initializeService();
+  } catch (e) {
+    debugPrint("Failed to initialize background service: $e");
+  }
   runApp(const ChakraApp());
 }
 
