@@ -18,17 +18,21 @@ var (
 	mu      sync.Mutex
 )
 
-// FIX: Root handler for Cron-job.org / browser checks
+// Root handler for health checks and Render logs
 func handleHome(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Ayy ToTo Signaling Server Live"))
+	w.Write([]byte("Ayy ToTo Signaling Server is LIVE"))
 }
 
 func handleSignaling(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		log.Printf("Upgrade error: %v", err)
 		return
 	}
+
+	// Log the connection event
+	log.Printf("NEW PEER CONNECTED: %s", r.RemoteAddr)
 
 	mu.Lock()
 	clients[conn] = true
@@ -38,6 +42,7 @@ func handleSignaling(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		delete(clients, conn)
 		mu.Unlock()
+		log.Printf("PEER DISCONNECTED: %s", r.RemoteAddr)
 		conn.Close()
 	}()
 
@@ -47,7 +52,7 @@ func handleSignaling(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		// Ignore keep-alive pings to save bandwidth
+		// Filter out internal 'ping' heartbeats from the broadcast
 		if string(message) == `{"type":"ping"}` {
 			continue
 		}
@@ -72,7 +77,7 @@ func main() {
 		port = "10000"
 	}
 
-	http.HandleFunc("/", handleHome) // PING THIS WITH CRON-JOB
+	http.HandleFunc("/", handleHome)
 	http.HandleFunc("/ws", handleSignaling)
 
 	log.Printf("Server starting on :%s", port)
