@@ -26,21 +26,27 @@ class AppColors {
   static const Color reconnecting = Color(0xFF0A84FF); // iOS blue
   static const Color error = Color(0xFFFF453A); // iOS red
 
-  // Legacy Light Mode (keeping for compatibility)
-  static const Color lightPrimary = Color(0xFF1A365D);
-  static const Color lightSecondary = Color(0xFF00BCD4);
-  static const Color lightAccent = Color(0xFFFF7043);
-  static const Color lightBackground = Color(0xFFF7FAFC);
+  // Legacy Light Mode (Refined for Modern Look)
+  static const Color lightPrimary = Color(
+    0xFF1C1C1E,
+  ); // Nearly black for primary headers
+  static const Color lightSecondary = Color(0xFFA4CD01); // Lime Green Accent
+  static const Color lightAccent = Color(0xFF7A9A01);
+  static const Color lightBackground = Color(
+    0xFFF2F2F7,
+  ); // iOS Light Gray Background
   static const Color lightSurface = Color(0xFFFFFFFF);
-  static const Color lightText = Color(0xFF2D3748);
-  static const Color lightTextSecondary = Color(0xFF718096);
+  static const Color lightText = Color(
+    0xFF000000,
+  ); // Pure Black for max contrast
+  static const Color lightTextSecondary = Color(0xFF3C3C43); // iOS Gray Label
 
-  // Legacy dark colors for backward compatibility
-  static const Color darkPrimary = Color(0xFF0F172A);
-  static const Color darkSecondary = Color(0xFF14B8A6);
-  static const Color darkAccent = Color(0xFFF59E0B);
-  static const Color darkText = Color(0xFFF1F5F9);
-  static const Color darkTextSecondary = Color(0xFF94A3B8);
+  // Dark colors (Beautiful OLED + Glass)
+  static const Color darkPrimary = Color(0xFF000000);
+  static const Color darkSecondary = Color(0xFFA4CD01);
+  static const Color darkAccent = Color(0xFF7A9A01);
+  static const Color darkText = Color(0xFFFFFFFF);
+  static const Color darkTextSecondary = Color(0xFFEBEBF5); // iOS Glass Label
 
   // Button Gradients - iOS 18 Style
   static const LinearGradient connectButtonGradient = LinearGradient(

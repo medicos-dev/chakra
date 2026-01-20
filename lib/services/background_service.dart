@@ -1,0 +1,67 @@
+import 'dart:async';
+import 'dart:ui';
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:flutter_background_service_android/flutter_background_service_android.dart';
+
+Future<void> initializeService() async {
+  final service = FlutterBackgroundService();
+
+  await service.configure(
+    androidConfiguration: AndroidConfiguration(
+      onStart: onStart,
+      autoStart: true, // Auto-start on boot as requested
+      isForegroundMode: true,
+      notificationChannelId: 'chakra_vpn_notification',
+      initialNotificationTitle: 'Chakra VPN',
+      initialNotificationContent: 'Chakra is protecting you',
+      foregroundServiceNotificationId: 888,
+    ),
+    iosConfiguration: IosConfiguration(
+      autoStart: true,
+      onForeground: onStart,
+      onBackground: onIosBackground,
+    ),
+  );
+}
+
+@pragma('vm:entry-point')
+Future<bool> onIosBackground(ServiceInstance service) async {
+  return true;
+}
+
+@pragma('vm:entry-point')
+void onStart(ServiceInstance service) async {
+  // Only available for flutter 3.0.0 and later
+  DartPluginRegistrant.ensureInitialized();
+
+  if (service is AndroidServiceInstance) {
+    service.on('setAsForeground').listen((event) {
+      service.setAsForegroundService();
+    });
+
+    service.on('setAsBackground').listen((event) {
+      service.setAsBackgroundService();
+    });
+  }
+
+  service.on('stopService').listen((event) {
+    service.stopSelf();
+  });
+
+  service.on('updateNotification').listen((event) {
+    if (service is AndroidServiceInstance) {
+      service.setForegroundNotificationInfo(
+        title: event?['title'] ?? 'Chakra VPN',
+        content: event?['content'] ?? 'Protected',
+      );
+    }
+  });
+
+  // Ensure initial notification is set
+  if (service is AndroidServiceInstance) {
+    service.setForegroundNotificationInfo(
+      title: "Chakra VPN",
+      content: "Chakra is protecting you",
+    );
+  }
+}

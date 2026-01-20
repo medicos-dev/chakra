@@ -19,7 +19,33 @@ enum VpnConnectionState {
 }
 
 class VpnProvider extends ChangeNotifier {
-  VpnConnectionState _connectionState = VpnConnectionState.disconnected;
+  VpnConnectionState _internalConnectionState = VpnConnectionState.disconnected;
+
+  VpnConnectionState get _connectionState => _internalConnectionState;
+
+  set _connectionState(VpnConnectionState state) {
+    if (_internalConnectionState == state) return;
+    _internalConnectionState = state;
+    notifyListeners();
+
+    // Update background notification
+    String content = 'Chakra is protecting you';
+    if (state == VpnConnectionState.connected) {
+      content = 'Protected • $_currentIp';
+    } else if (state == VpnConnectionState.connecting) {
+      content = 'Connecting...';
+    } else if (state == VpnConnectionState.disconnected) {
+      content = 'Device not connected';
+    }
+
+    print('Updating Notification: $content'); // Debug log
+
+    FlutterBackgroundService().invoke('updateNotification', {
+      'title': 'Chakra VPN',
+      'content': content,
+    });
+  }
+
   String _currentIp = '---';
   int _latency = 0;
   int _uploadBytes = 0;
@@ -316,7 +342,6 @@ class VpnProvider extends ChangeNotifier {
     Future.delayed(const Duration(seconds: 3), () {
       if (_connectionState == VpnConnectionState.error) {
         _connectionState = VpnConnectionState.disconnected;
-        notifyListeners();
       }
     });
   }

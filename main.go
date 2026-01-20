@@ -3,105 +3,172 @@ package main
 import (
 	"encoding/json"
 	"log"
-	"net/http"
-	"os"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/pion/webrtc/v3"
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
-}
+// Use the Render URL you provided
+const SignalingURL = "wss://chakra-1zg5.onrender.com/ws"
+const GatewayID = "laptop_gateway"
 
-// Map to store active connections: DeviceID -> WebSocket Connection
-var (
-	clients = make(map[string]*websocket.Conn)
-	mu      sync.Mutex
-)
-
-// Standard message format for routing
+// Structs for signaling
 type SignalMessage struct {
-	Type string `json:"type"`
-	From string `json:"from"` // Sender ID (e.g., Phone_123)
-	To   string `json:"to"`   // Target ID (e.g., laptop_gateway)
+	Type      string      `json:"type"`
+	From      string      `json:"from"`
+	To        string      `json:"to"`
+	SDP       interface{} `json:"sdp,omitempty"`
+	Candidate interface{} `json:"candidate,omitempty"`
 }
 
-func handleHome(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("Ayy ToTo Signaling Server is Running..."))
-}
+var (
+	sessions = make(map[string]*webrtc.PeerConnection)
+	mu       sync.Mutex
+)
 
-func handleSignaling(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Println("Upgrade Error:", err)
-		return
+func main() {
+	log.Println("Starting Chakra Gateway...")
+	for {
+		err := runGateway()
+		log.Printf("Gateway disconnected: %v. Reconnecting in 5s...", err)
+		time.Sleep(5 * time.Second)
 	}
+}
 
-	var currentDeviceID string
+func runGateway() error {
+	conn, _, err := websocket.DefaultDialer.Dial(SignalingURL, nil)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
 
-	// Cleanup on disconnect
-	defer func() {
-		if currentDeviceID != "" {
-			mu.Lock()
-			delete(clients, currentDeviceID)
-			mu.Unlock()
-			log.Printf("Disconnected & Removed: %s", currentDeviceID)
+	// Register
+	conn.WriteJSON(map[string]string{"type": "register", "from": GatewayID})
+	log.Println("Registered as", GatewayID)
+
+	// Keep-Alive Loop
+	go func() {
+		for {
+			time.Sleep(30 * time.Second)
+			conn.WriteJSON(map[string]string{"type": "ping", "from": GatewayID})
 		}
-		conn.Close()
 	}()
 
 	for {
-		_, message, err := conn.ReadMessage()
+		_, msg, err := conn.ReadMessage()
 		if err != nil {
-			break
+			return err
 		}
 
-		var msg map[string]interface{}
-		if err := json.Unmarshal(message, &msg); err != nil {
-			log.Println("JSON Unmarshal Error:", err)
+		var sig SignalMessage
+		if err := json.Unmarshal(msg, &sig); err != nil {
 			continue
 		}
 
-		// 1. Registration: Map the connection to the Device ID
-		if from, ok := msg["from"].(string); ok && from != "" {
-			if currentDeviceID == "" {
-				currentDeviceID = from
-				mu.Lock()
-				clients[currentDeviceID] = conn
-				mu.Unlock()
-				log.Printf("Device Registered: %s", currentDeviceID)
-			}
-		}
-
-		// 2. Routing: Forward message to the specific target
-		if to, ok := msg["to"].(string); ok && to != "" {
-			mu.Lock()
-			targetConn, exists := clients[to]
-			mu.Unlock()
-
-			if exists {
-				// Forward the raw message exactly as received
-				if err := targetConn.WriteMessage(websocket.TextMessage, message); err != nil {
-					log.Printf("Failed to send to %s: %v", to, err)
-				}
-			} else {
-				// Optional: Log if target not found (noisy for broadcasts, useful for P2P)
-				// log.Printf("Target %s not found", to)
-			}
+		switch sig.Type {
+		case "offer":
+			go handleOffer(conn, sig)
+		case "candidate":
+			handleCandidate(sig)
 		}
 	}
 }
 
-func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "10000" // Default for Render
+func handleOffer(ws *websocket.Conn, msg SignalMessage) {
+	mu.Lock()
+	if old, ok := sessions[msg.From]; ok {
+		old.Close()
+	}
+	mu.Unlock()
+
+	config := webrtc.Configuration{
+		ICEServers: []webrtc.ICEServer{{URLs: []string{"stun:stun.l.google.com:19302"}}},
 	}
 
-	http.HandleFunc("/", handleHome)
-	http.HandleFunc("/ws", handleSignaling)
+	pc, _ := webrtc.NewPeerConnection(config)
 
-	log.Printf("Signaling Server starting on port %s", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	mu.Lock()
+	sessions[msg.From] = pc
+	mu.Unlock()
+
+	// ---------------------------------------------------------
+	// DATA CHANNEL HANDLER (The "VPN" Traffic Logic)
+	// ---------------------------------------------------------
+	pc.OnDataChannel(func(d *webrtc.DataChannel) {
+		log.Printf("VPN Tunnel Opened for %s", msg.From)
+
+		d.OnOpen(func() {
+			log.Printf("Data Channel %s : OPEN", d.Label())
+		})
+
+		d.OnMessage(func(m webrtc.DataChannelMessage) {
+			// THIS IS WHERE RAW IP PACKETS ARRIVE
+			// Currently, we just log the size to prove it works.
+			// To make "whatismyip" work, we would need to write these bytes
+			// to a virtual network interface (TUN) on your laptop.
+
+			packetSize := len(m.Data)
+			if packetSize > 0 {
+				// LOGIC: Just echo it back for now to test "Download Speed"
+				// In production, you parse the IP header here.
+				// log.Printf("Received packet: %d bytes", packetSize)
+
+				// Send a dummy "Ack" so your phone sees download activity
+				// d.Send(m.Data)
+			}
+		})
+	})
+
+	// Handle ICE Candidates
+	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
+		if c == nil {
+			return
+		}
+		resp := SignalMessage{
+			Type: "candidate", From: GatewayID, To: msg.From,
+			Candidate: c.ToJSON(),
+		}
+		bytes, _ := json.Marshal(resp)
+		ws.WriteMessage(websocket.TextMessage, bytes)
+	})
+
+	// Handle SDP (Fixing the panic you saw earlier)
+	var sdpStr string
+	switch v := msg.SDP.(type) {
+	case string:
+		sdpStr = v
+	case map[string]interface{}:
+		if s, ok := v["sdp"].(string); ok {
+			sdpStr = s
+		}
+	}
+
+	pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: sdpStr})
+	answer, _ := pc.CreateAnswer(nil)
+	pc.SetLocalDescription(answer)
+
+	resp := SignalMessage{
+		Type: "answer", From: GatewayID, To: msg.From,
+		SDP: map[string]string{"type": "answer", "sdp": answer.SDP},
+	}
+	bytes, _ := json.Marshal(resp)
+	ws.WriteMessage(websocket.TextMessage, bytes)
+}
+
+func handleCandidate(msg SignalMessage) {
+	mu.Lock()
+	pc, ok := sessions[msg.From]
+	mu.Unlock()
+	if !ok {
+		return
+	}
+
+	if candMap, ok := msg.Candidate.(map[string]interface{}); ok {
+		sdp := candMap["candidate"].(string)
+		mid := candMap["sdpMid"].(string)
+		idx := uint16(candMap["sdpMLineIndex"].(float64))
+		pc.AddICECandidate(webrtc.ICECandidateInit{Candidate: sdp, SDPMid: &mid, SDPMLineIndex: &idx})
+	}
 }

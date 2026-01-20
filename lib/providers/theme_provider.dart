@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ThemeProvider extends ChangeNotifier {
   static const String _themeKey = 'theme_mode';
-  ThemeMode _themeMode = ThemeMode.system;
+
+  // Default to Light as requested
+  ThemeMode _themeMode = ThemeMode.light;
   bool _isFirstLaunch = true;
 
   ThemeMode get themeMode => _themeMode;
   bool get isFirstLaunch => _isFirstLaunch;
 
-  // This helper is useful if we need to know the *current* brightness
-  // but typically the UI should check Theme.of(context).brightness
   bool isDarkMode(BuildContext context) {
     if (_themeMode == ThemeMode.system) {
       return MediaQuery.of(context).platformBrightness == Brightness.dark;
@@ -24,14 +25,16 @@ class ThemeProvider extends ChangeNotifier {
 
   Future<void> _loadThemePreference() async {
     final prefs = await SharedPreferences.getInstance();
-    final themeIndex = prefs.getInt(_themeKey) ?? ThemeMode.system.index;
+    // Default to ThemeMode.light.index if key not found
+    final themeIndex = prefs.getInt(_themeKey) ?? ThemeMode.light.index;
+
     if (themeIndex >= 0 && themeIndex < ThemeMode.values.length) {
       _themeMode = ThemeMode.values[themeIndex];
     } else {
-      _themeMode = ThemeMode.system;
+      _themeMode = ThemeMode.light;
     }
 
-    _isFirstLaunch = prefs.getBool('first_launch') ?? true;
+    _isFirstLaunch = false;
     notifyListeners();
   }
 
@@ -39,21 +42,15 @@ class ThemeProvider extends ChangeNotifier {
     if (_themeMode == mode) return;
 
     _themeMode = mode;
+    notifyListeners();
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_themeKey, mode.index);
-    notifyListeners();
   }
 
-  // Toggle between light and dark (skips system)
-  Future<void> toggleTheme(BuildContext context) async {
+  // Helper to toggle between light/dark (skipping system)
+  void toggleTheme(BuildContext context) {
     final isDark = isDarkMode(context);
-    await setThemeMode(isDark ? ThemeMode.light : ThemeMode.dark);
-  }
-
-  Future<void> dismissFirstLaunch() async {
-    _isFirstLaunch = false;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('first_launch', false);
-    notifyListeners();
+    setThemeMode(isDark ? ThemeMode.light : ThemeMode.dark);
   }
 }

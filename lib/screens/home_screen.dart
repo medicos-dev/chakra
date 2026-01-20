@@ -2,14 +2,30 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lottie/lottie.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../providers/vpn_provider.dart';
 import '../widgets/connect_button.dart';
 import '../widgets/status_bar_widget.dart';
 import '../widgets/reconnection_overlay.dart';
 import '../config/app_colors.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _requestPermissions();
+  }
+
+  Future<void> _requestPermissions() async {
+    await Permission.notification.request();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -120,7 +136,7 @@ class HomeScreen extends StatelessWidget {
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(12),
                                 child: Image.asset(
-                                  'assets/images/logo.png',
+                                  'assets/images/chakra.png',
                                   fit: BoxFit.cover,
                                 ),
                               ),

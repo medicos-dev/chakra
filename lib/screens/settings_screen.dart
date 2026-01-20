@@ -47,7 +47,12 @@ class SettingsScreen extends StatelessWidget {
         ),
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 120, 20, 40),
+        padding: EdgeInsets.fromLTRB(
+          20,
+          120,
+          20,
+          40 + MediaQuery.of(context).padding.bottom,
+        ),
         children: [
           // Appearance Section
           _buildSectionHeader(context, 'Appearance', isDark),
@@ -173,7 +178,7 @@ class SettingsScreen extends StatelessWidget {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(16),
                     child: Image.asset(
-                      'assets/images/logo.png',
+                      'assets/images/chakra.png',
                       fit: BoxFit.cover,
                     ),
                   ),

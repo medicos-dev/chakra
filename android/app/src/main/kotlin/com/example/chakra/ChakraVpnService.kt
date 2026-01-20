@@ -100,10 +100,11 @@ class ChakraVpnService : VpnService() {
         try {
             // Configure VPN interface
             val builder = Builder()
-            builder.setSession("ChakraVPN")
-            builder.addAddress("10.0.0.2", 24)
+            builder.setSession("Chakra VPN")
+            builder.addAddress("10.0.0.2", 32)
             builder.addRoute("0.0.0.0", 0)
             builder.addDnsServer("8.8.8.8")
+            builder.setMtu(1500)
             builder.setBlocking(true)
             
             // For typical VPN apps we might want to exclude our own app's traffic 
@@ -122,7 +123,7 @@ class ChakraVpnService : VpnService() {
                 mThread?.start()
                 Log.i(TAG, "VPN Established")
             } else {
-                Log.e(TAG, "Failed to establish VPN interface")
+                Log.e(TAG, "Failed to establish VPN interface: establish() returned null")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error starting VPN: ${e.message}")
