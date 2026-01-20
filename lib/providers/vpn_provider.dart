@@ -307,25 +307,29 @@ class VpnProvider extends ChangeNotifier {
         _remoteCandidates.clear();
       } else if (msg['type'] == 'candidate') {
         final candidateData = msg['candidate'];
+
         if (candidateData != null) {
-          // FIX: Explicitly extract the inner 'candidate' string uses force-cast logic
-          String? candidateStr =
-              candidateData is Map
-                  ? candidateData['candidate']?.toString()
-                  : candidateData.toString();
+          // 1. Force-extract the fields to avoid the "Map is not a subtype of String" error
+          String? candidateStr;
+          String? sdpMid;
+          int? sdpMLineIndex;
 
-          String? sdpMid =
-              candidateData is Map ? candidateData['sdpMid']?.toString() : null;
+          if (candidateData is Map) {
+            // Laptop is sending a Map: {"candidate": "...", "sdpMid": "...", "sdpMLineIndex": 0}
+            candidateStr = candidateData['candidate']?.toString();
+            sdpMid = candidateData['sdpMid']?.toString();
+            sdpMLineIndex =
+                candidateData['sdpMLineIndex'] is int
+                    ? candidateData['sdpMLineIndex']
+                    : int.tryParse(
+                      candidateData['sdpMLineIndex']?.toString() ?? "",
+                    );
+          } else {
+            // Laptop is sending a raw String
+            candidateStr = candidateData.toString();
+          }
 
-          int? sdpMLineIndex =
-              candidateData is Map
-                  ? (candidateData['sdpMLineIndex'] is int
-                      ? candidateData['sdpMLineIndex']
-                      : int.tryParse(
-                        candidateData['sdpMLineIndex']?.toString() ?? "",
-                      ))
-                  : null;
-
+          // 2. Only add if we have the actual candidate string
           if (candidateStr != null && candidateStr.isNotEmpty) {
             final candidate = RTCIceCandidate(
               candidateStr,
@@ -333,10 +337,10 @@ class VpnProvider extends ChangeNotifier {
               sdpMLineIndex,
             );
 
+            // Queueing logic to prevent race condition (Trickle ICE)
             if (_remoteDescriptionSet) {
-              print('Adding ICE Candidate immediately');
               await _peerConnection?.addCandidate(candidate);
-              print("SUCCESS: Remote candidate added.");
+              print("SUCCESS: ICE Candidate added to PeerConnection");
             } else {
               print('Queueing ICE Candidate (Remote Description not set)');
               _remoteCandidates.add(candidate);
