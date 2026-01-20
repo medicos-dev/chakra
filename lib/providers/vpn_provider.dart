@@ -292,63 +292,84 @@ class VpnProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _handleSignalingMessage(dynamic data) async {
+  void _handleSignalingMessage(dynamic rawMessage) async {
     try {
-      final msg = jsonDecode(data);
-      if (msg['type'] == 'answer') {
-        print('Setting Remote Description from Answer');
-        await _peerConnection?.setRemoteDescription(
-          RTCSessionDescription(msg['sdp'], 'answer'),
-        );
-        _remoteDescriptionSet = true;
+      final data = jsonDecode(rawMessage);
+      final String? type = data['type'];
 
-        // Drain queued candidates
-        print('Draining ${_remoteCandidates.length} queued candidates');
-        for (final candidate in _remoteCandidates) {
-          await _peerConnection?.addCandidate(candidate);
-        }
-        _remoteCandidates.clear();
-      } else if (msg['type'] == 'candidate') {
-        final candidateData = msg['candidate'];
+      if (type == 'answer') {
+        print("I/flutter: Setting Remote Description from Answer");
 
-        if (candidateData != null) {
-          // 1. Force-extract the fields to avoid the "Map is not a subtype of String" error
-          String? candidateStr;
-          String? sdpMid;
-          int? sdpMLineIndex;
+        try {
+          var sdpData = data['sdp'];
+          String? sdpString;
+          String? sdpType;
 
-          if (candidateData is Map) {
-            // Laptop is sending a Map: {"candidate": "...", "sdpMid": "...", "sdpMLineIndex": 0}
-            candidateStr = candidateData['candidate']?.toString();
-            sdpMid = candidateData['sdpMid']?.toString();
-            sdpMLineIndex =
-                candidateData['sdpMLineIndex'] is int
-                    ? candidateData['sdpMLineIndex']
-                    : int.tryParse(
-                      candidateData['sdpMLineIndex']?.toString() ?? "",
-                    );
+          // Handle if 'sdp' is a nested Map (from Go) or a direct value
+          if (sdpData is Map) {
+            sdpString = sdpData['sdp'];
+            sdpType = sdpData['type'];
           } else {
-            // Laptop is sending a raw String
-            candidateStr = candidateData.toString();
+            sdpString = sdpData;
+            sdpType = 'answer';
           }
 
-          // 2. Only add if we have the actual candidate string
-          if (candidateStr != null && candidateStr.isNotEmpty) {
-            final candidate = RTCIceCandidate(
-              candidateStr,
-              sdpMid,
-              sdpMLineIndex,
+          if (sdpString != null) {
+            await _peerConnection?.setRemoteDescription(
+              RTCSessionDescription(sdpString, sdpType ?? 'answer'),
             );
+            print("I/flutter: Remote Description Set Successfully!");
 
-            // Queueing logic to prevent race condition (Trickle ICE)
-            if (_remoteDescriptionSet) {
+            _remoteDescriptionSet = true;
+
+            // Drain queued candidates
+            print('Draining ${_remoteCandidates.length} queued candidates');
+            for (final candidate in _remoteCandidates) {
               await _peerConnection?.addCandidate(candidate);
-              print("SUCCESS: ICE Candidate added to PeerConnection");
+            }
+            _remoteCandidates.clear();
+          }
+        } catch (e) {
+          print("I/flutter: Signaling Error during Answer: $e");
+        }
+      } else if (type == 'candidate') {
+        try {
+          final candidateData = data['candidate'];
+          if (candidateData != null && _peerConnection != null) {
+            String? candidateStr;
+            String? sdpMid;
+            int? sdpMLineIndex;
+
+            if (candidateData is Map) {
+              candidateStr = candidateData['candidate']?.toString();
+              sdpMid = candidateData['sdpMid']?.toString();
+              sdpMLineIndex =
+                  candidateData['sdpMLineIndex'] is int
+                      ? candidateData['sdpMLineIndex']
+                      : int.tryParse(
+                        candidateData['sdpMLineIndex']?.toString() ?? "",
+                      );
             } else {
-              print('Queueing ICE Candidate (Remote Description not set)');
-              _remoteCandidates.add(candidate);
+              candidateStr = candidateData.toString();
+            }
+
+            if (candidateStr != null) {
+              final candidate = RTCIceCandidate(
+                candidateStr,
+                sdpMid,
+                sdpMLineIndex,
+              );
+
+              if (_remoteDescriptionSet) {
+                await _peerConnection!.addCandidate(candidate);
+              } else {
+                print('Queueing ICE Candidate (Remote Description not set)');
+                _remoteCandidates.add(candidate);
+              }
             }
           }
+        } catch (e) {
+          print("I/flutter: Candidate Error: $e");
         }
       }
     } catch (e) {
