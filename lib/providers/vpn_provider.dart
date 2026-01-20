@@ -306,20 +306,25 @@ class VpnProvider extends ChangeNotifier {
         }
         _remoteCandidates.clear();
       } else if (msg['type'] == 'candidate') {
-        final candidateMap = msg['candidate'];
-        if (candidateMap != null) {
-          print("RAW CANDIDATE MAP: $candidateMap");
-          dynamic rawCandidate = candidateMap['candidate'];
-          print("CANDIDATE FIELD TYPE: ${rawCandidate.runtimeType}");
+        final candidateData = msg['candidate'];
+        if (candidateData != null) {
+          // FIX: Explicitly extract the inner 'candidate' string uses force-cast logic
+          String? candidateStr =
+              candidateData is Map
+                  ? candidateData['candidate']?.toString()
+                  : candidateData.toString();
 
-          String? candidateStr = rawCandidate?.toString();
-          String? sdpMid = candidateMap['sdpMid']?.toString();
+          String? sdpMid =
+              candidateData is Map ? candidateData['sdpMid']?.toString() : null;
+
           int? sdpMLineIndex =
-              candidateMap['sdpMLineIndex'] is int
-                  ? candidateMap['sdpMLineIndex']
-                  : int.tryParse(
-                    candidateMap['sdpMLineIndex']?.toString() ?? "",
-                  );
+              candidateData is Map
+                  ? (candidateData['sdpMLineIndex'] is int
+                      ? candidateData['sdpMLineIndex']
+                      : int.tryParse(
+                        candidateData['sdpMLineIndex']?.toString() ?? "",
+                      ))
+                  : null;
 
           if (candidateStr != null && candidateStr.isNotEmpty) {
             final candidate = RTCIceCandidate(
@@ -331,6 +336,7 @@ class VpnProvider extends ChangeNotifier {
             if (_remoteDescriptionSet) {
               print('Adding ICE Candidate immediately');
               await _peerConnection?.addCandidate(candidate);
+              print("SUCCESS: Remote candidate added.");
             } else {
               print('Queueing ICE Candidate (Remote Description not set)');
               _remoteCandidates.add(candidate);
