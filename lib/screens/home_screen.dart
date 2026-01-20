@@ -134,7 +134,6 @@ class HomeScreen extends StatelessWidget {
                                 Text(
                                   'Ay ToTo',
                                   style: TextStyle(
-                                    fontFamily: 'Inter',
                                     fontSize: 18,
                                     fontWeight: FontWeight.w700,
                                     color:

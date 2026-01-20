@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+
 import 'app_colors.dart';
 
 class AppTheme {
+  static const String fontFamily = 'SourGummy';
+
   static ThemeData lightTheme = ThemeData(
     useMaterial3: true,
     brightness: Brightness.light,
     primaryColor: AppColors.lightPrimary,
     scaffoldBackgroundColor: AppColors.lightBackground,
+    fontFamily: fontFamily,
     colorScheme: const ColorScheme.light(
       primary: AppColors.lightPrimary,
       secondary: AppColors.lightSecondary,
@@ -17,46 +20,54 @@ class AppTheme {
       onSecondary: Colors.white,
       onSurface: AppColors.lightText,
     ),
-    textTheme: GoogleFonts.interTextTheme().copyWith(
-      displayLarge: GoogleFonts.inter(
+    textTheme: const TextTheme(
+      displayLarge: TextStyle(
         fontSize: 32,
         fontWeight: FontWeight.bold,
         color: AppColors.lightText,
+        fontFamily: fontFamily,
       ),
-      headlineLarge: GoogleFonts.inter(
+      headlineLarge: TextStyle(
         fontSize: 28,
         fontWeight: FontWeight.bold,
         color: AppColors.lightText,
+        fontFamily: fontFamily,
       ),
-      headlineMedium: GoogleFonts.inter(
+      headlineMedium: TextStyle(
         fontSize: 24,
         fontWeight: FontWeight.w600,
         color: AppColors.lightText,
+        fontFamily: fontFamily,
       ),
-      titleLarge: GoogleFonts.inter(
+      titleLarge: TextStyle(
         fontSize: 20,
         fontWeight: FontWeight.w600,
         color: AppColors.lightText,
+        fontFamily: fontFamily,
       ),
-      titleMedium: GoogleFonts.inter(
+      titleMedium: TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.w500,
         color: AppColors.lightText,
+        fontFamily: fontFamily,
       ),
-      bodyLarge: GoogleFonts.inter(
+      bodyLarge: TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.normal,
         color: AppColors.lightText,
+        fontFamily: fontFamily,
       ),
-      bodyMedium: GoogleFonts.inter(
+      bodyMedium: TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.normal,
         color: AppColors.lightTextSecondary,
+        fontFamily: fontFamily,
       ),
-      labelLarge: GoogleFonts.inter(
+      labelLarge: TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.w500,
         color: AppColors.lightText,
+        fontFamily: fontFamily,
       ),
     ),
     cardTheme: CardTheme(
@@ -91,6 +102,7 @@ class AppTheme {
     brightness: Brightness.dark,
     primaryColor: AppColors.darkPrimary,
     scaffoldBackgroundColor: AppColors.darkBackground,
+    fontFamily: fontFamily,
     colorScheme: const ColorScheme.dark(
       primary: AppColors.darkSecondary,
       secondary: AppColors.darkSecondary,
@@ -100,46 +112,54 @@ class AppTheme {
       onSecondary: Colors.white,
       onSurface: AppColors.darkText,
     ),
-    textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme).copyWith(
-      displayLarge: GoogleFonts.inter(
+    textTheme: const TextTheme(
+      displayLarge: TextStyle(
         fontSize: 32,
         fontWeight: FontWeight.bold,
         color: AppColors.darkText,
+        fontFamily: fontFamily,
       ),
-      headlineLarge: GoogleFonts.inter(
+      headlineLarge: TextStyle(
         fontSize: 28,
         fontWeight: FontWeight.bold,
         color: AppColors.darkText,
+        fontFamily: fontFamily,
       ),
-      headlineMedium: GoogleFonts.inter(
+      headlineMedium: TextStyle(
         fontSize: 24,
         fontWeight: FontWeight.w600,
         color: AppColors.darkText,
+        fontFamily: fontFamily,
       ),
-      titleLarge: GoogleFonts.inter(
+      titleLarge: TextStyle(
         fontSize: 20,
         fontWeight: FontWeight.w600,
         color: AppColors.darkText,
+        fontFamily: fontFamily,
       ),
-      titleMedium: GoogleFonts.inter(
+      titleMedium: TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.w500,
         color: AppColors.darkText,
+        fontFamily: fontFamily,
       ),
-      bodyLarge: GoogleFonts.inter(
+      bodyLarge: TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.normal,
         color: AppColors.darkText,
+        fontFamily: fontFamily,
       ),
-      bodyMedium: GoogleFonts.inter(
+      bodyMedium: TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.normal,
         color: AppColors.darkTextSecondary,
+        fontFamily: fontFamily,
       ),
-      labelLarge: GoogleFonts.inter(
+      labelLarge: TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.w500,
         color: AppColors.darkText,
+        fontFamily: fontFamily,
       ),
     ),
     cardTheme: CardTheme(

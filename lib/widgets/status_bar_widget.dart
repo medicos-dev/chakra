@@ -51,7 +51,6 @@ class StatusBarWidget extends StatelessWidget {
                       Text(
                         vpn.statusText,
                         style: TextStyle(
-                          fontFamily: 'Inter',
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
                           color: _getStatusColor(vpn.connectionState),
@@ -62,7 +61,6 @@ class StatusBarWidget extends StatelessWidget {
                         Text(
                           vpn.currentIp,
                           style: const TextStyle(
-                            fontFamily: 'Inter',
                             fontSize: 13,
                             fontWeight: FontWeight.w400,
                             color: AppColors.textSecondary,
@@ -127,7 +125,6 @@ class StatusBarWidget extends StatelessWidget {
             Text(
               label,
               style: const TextStyle(
-                fontFamily: 'Inter',
                 fontSize: 11,
                 fontWeight: FontWeight.w500,
                 color: AppColors.textTertiary,

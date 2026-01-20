@@ -21,7 +21,6 @@ class SettingsScreen extends StatelessWidget {
         title: Text(
           'Settings',
           style: TextStyle(
-            fontFamily: 'Inter',
             fontWeight: FontWeight.w600,
             color: isDark ? AppColors.textPrimary : AppColors.lightText,
           ),
@@ -183,7 +182,6 @@ class SettingsScreen extends StatelessWidget {
                 Text(
                   'Ay ToTo VPN',
                   style: TextStyle(
-                    fontFamily: 'Inter',
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
                     color: isDark ? AppColors.textPrimary : AppColors.lightText,
@@ -194,7 +192,6 @@ class SettingsScreen extends StatelessWidget {
                 Text(
                   'Secure. Private. Limitless.',
                   style: TextStyle(
-                    fontFamily: 'Inter',
                     fontSize: 12,
                     fontWeight: FontWeight.w400,
                     color:
@@ -298,7 +295,6 @@ class SettingsScreen extends StatelessWidget {
         child: Text(
           subtitle,
           style: TextStyle(
-            fontFamily: 'Inter',
             fontSize: 13,
             fontWeight: FontWeight.w400,
             color:
@@ -347,7 +343,6 @@ class SettingsScreen extends StatelessWidget {
         child: Text(
           subtitle,
           style: TextStyle(
-            fontFamily: 'Inter',
             fontSize: 13,
             fontWeight: FontWeight.w400,
             color:
@@ -436,7 +431,6 @@ class SettingsScreen extends StatelessWidget {
               Text(
                 'Theme',
                 style: TextStyle(
-                  fontFamily: 'Inter',
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
                   color: isDark ? AppColors.textPrimary : AppColors.lightText,
