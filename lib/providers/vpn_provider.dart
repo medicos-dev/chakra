@@ -86,17 +86,15 @@ class VpnProvider extends ChangeNotifier {
   final Map<String, dynamic> _iceServers = {
     "iceServers": [
       {
-        "urls": [
-          // "stun:stun.l.google.com:19302",
-          // "stun:free.expressturn.com:3478",
-          "turn:free.expressturn.com:3478?transport=tcp", // Force TCP
-        ],
+        "urls": ["turn:free.expressturn.com:3478?transport=tcp"],
         "username": "000000002084374934",
         "credential": "6CR+Wx+nNcHiara9mt8wPan7RLM=",
       },
     ],
-    "iceTransportPolicy":
-        "relay", // Force it to use the TURN server even on WiFi for testing
+    "iceTransportPolicy": "relay", // FORCE relay to bypass CGNAT
+    "bundlePolicy": "max-bundle",
+    "rtcpMuxPolicy": "require",
+    "iceCandidatePoolSize": 10,
   };
 
   // Getters
@@ -285,16 +283,12 @@ class VpnProvider extends ChangeNotifier {
       );
 
       // 1.5. Start Connection Timeout Timer
+      // 1.5. Start Connection Timeout Timer (60s)
       _connectionTimeoutTimer?.cancel();
-      _connectionTimeoutTimer = Timer(const Duration(seconds: 15), () {
+      _connectionTimeoutTimer = Timer(const Duration(seconds: 60), () {
         if (_connectionState != VpnConnectionState.connected) {
-          print(
-            "⏳ Connection Timeout - Attempting ICE Restart instead of full reset",
-          );
-
-          // DON'T close the websocket here.
-          // Just trigger an ICE restart if supported, or log and wait.
-          _peerConnection?.restartIce();
+          print("⏳ 60s Timeout reached. Connection actually failed.");
+          stopConnection(); // Hard fail after 60s
         }
       });
 

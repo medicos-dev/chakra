@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -18,12 +19,11 @@ var (
 	}
 )
 
-// SignalMessage matched exactly with Gateway and Flutter Client
 type SignalMessage struct {
-	Type    string `json:"type"`    // register, offer, answer, candidate
-	Target  string `json:"target"`  // Who should receive this
-	Sender  string `json:"sender"`  // Who sent this
-	Payload string `json:"payload"` // The actual SDP or Candidate string
+	Type    string `json:"type"`
+	Target  string `json:"target"`
+	Sender  string `json:"sender"`
+	Payload string `json:"payload"`
 }
 
 func main() {
@@ -48,9 +48,20 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// KEEP-ALIVE: Prevents Render from closing idle connections
+	conn.SetPongHandler(func(string) error { return nil })
+	go func() {
+		ticker := time.NewTicker(20 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		}
+	}()
+
 	var currentClientID string
 
-	// Ensure cleanup when connection closes
 	defer func() {
 		if currentClientID != "" {
 			clientsMu.Lock()
@@ -69,13 +80,11 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		var sig SignalMessage
 		if err := json.Unmarshal(msg, &sig); err != nil {
-			log.Println("Unmarshal error:", err)
 			continue
 		}
 
-		// Handle Registration
 		if sig.Type == "register" {
-			currentClientID = sig.Target // In register, Target is the ID of the sender
+			currentClientID = sig.Target
 			clientsMu.Lock()
 			clients[currentClientID] = conn
 			clientsMu.Unlock()
@@ -83,25 +92,16 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// Handle Forwarding (Offer, Answer, Candidate)
 		if sig.Target != "" {
 			clientsMu.Lock()
 			targetConn, exists := clients[sig.Target]
 			clientsMu.Unlock()
 
 			if exists {
-				// We attach the sender's ID so the target knows who to reply to
 				sig.Sender = currentClientID
 				forwardMsg, _ := json.Marshal(sig)
-
-				err = targetConn.WriteMessage(websocket.TextMessage, forwardMsg)
-				if err != nil {
-					log.Printf("Error forwarding to %s: %v", sig.Target, err)
-				} else {
-					log.Printf("➡️ Forwarded %s from %s to %s", sig.Type, currentClientID, sig.Target)
-				}
-			} else {
-				log.Printf("⚠️ Target %s not found for %s", sig.Target, sig.Type)
+				targetConn.WriteMessage(websocket.TextMessage, forwardMsg)
+				log.Printf("➡️ %s: %s -> %s", sig.Type, currentClientID, sig.Target)
 			}
 		}
 	}
