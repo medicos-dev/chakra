@@ -288,9 +288,13 @@ class VpnProvider extends ChangeNotifier {
       _connectionTimeoutTimer?.cancel();
       _connectionTimeoutTimer = Timer(const Duration(seconds: 15), () {
         if (_connectionState != VpnConnectionState.connected) {
-          print('Connection Timeout (15s) - Retrying...');
-          disconnect();
-          _setErrorState();
+          print(
+            "⏳ Connection Timeout - Attempting ICE Restart instead of full reset",
+          );
+
+          // DON'T close the websocket here.
+          // Just trigger an ICE restart if supported, or log and wait.
+          _peerConnection?.restartIce();
         }
       });
 
