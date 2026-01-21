@@ -45,7 +45,7 @@ class ChakraVpnService : VpnService() {
         }
 
         // Get assigned IP from Gateway (default fallback)
-        val assignedIp = intent.getStringExtra("ip") ?: "10.0.0.2"
+        val assignedIp = intent.getStringExtra("assigned_ip") ?: "10.0.0.2"
         Log.i(TAG, "Starting VPN with assigned IP: $assignedIp")
 
         // START VPN with dynamic IP
@@ -71,7 +71,7 @@ class ChakraVpnService : VpnService() {
         // For this WebRTC/Tunnel implementation, we start the VPN interface.
         
         try {
-            startVpn()
+            startVpn(clientIpAddress)  // Use the provided IP address
             return mRunning.get()
         } catch (e: Exception) {
             Log.e(TAG, "Connect failed: ${e.message}")

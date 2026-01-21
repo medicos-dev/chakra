@@ -72,7 +72,7 @@ class MainActivity : FlutterActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == VPN_REQUEST_CODE && resultCode == RESULT_OK) {
             val intent = Intent(this, ChakraVpnService::class.java)
-            intent.putExtra("ip", pendingIp)
+            intent.putExtra("assigned_ip", pendingIp)  // Key must match Kotlin's getStringExtra
             startService(intent)
         }
     }
