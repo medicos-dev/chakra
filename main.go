@@ -13,15 +13,17 @@ import (
 var (
 	clients   = make(map[string]*websocket.Conn)
 	clientsMu sync.Mutex
-	upgrader  = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	upgrader  = websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
 )
 
+// SignalMessage matched exactly with Gateway and Flutter Client
 type SignalMessage struct {
-	Type      string      `json:"type"` // offer, answer, candidate, register
-	From      string      `json:"from"`
-	To        string      `json:"to"`
-	SDP       interface{} `json:"sdp,omitempty"`
-	Candidate interface{} `json:"candidate,omitempty"`
+	Type    string `json:"type"`    // register, offer, answer, candidate
+	Target  string `json:"target"`  // Who should receive this
+	Sender  string `json:"sender"`  // Who sent this
+	Payload string `json:"payload"` // The actual SDP or Candidate string
 }
 
 func main() {
@@ -42,11 +44,23 @@ func main() {
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		log.Println("Upgrade error:", err)
 		return
 	}
-	defer conn.Close()
 
-	var clientID string
+	var currentClientID string
+
+	// Ensure cleanup when connection closes
+	defer func() {
+		if currentClientID != "" {
+			clientsMu.Lock()
+			delete(clients, currentClientID)
+			clientsMu.Unlock()
+			log.Printf("❌ Disconnected: %s", currentClientID)
+		}
+		conn.Close()
+	}()
+
 	for {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
@@ -55,28 +69,39 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		var sig SignalMessage
 		if err := json.Unmarshal(msg, &sig); err != nil {
+			log.Println("Unmarshal error:", err)
 			continue
 		}
 
+		// Handle Registration
 		if sig.Type == "register" {
-			clientID = sig.From
+			currentClientID = sig.Target // In register, Target is the ID of the sender
 			clientsMu.Lock()
-			clients[clientID] = conn
+			clients[currentClientID] = conn
 			clientsMu.Unlock()
-			log.Printf("✅ Registered: %s", clientID)
+			log.Printf("✅ Registered: %s", currentClientID)
 			continue
 		}
 
-		// FORWARDING LOGIC
-		if sig.To != "" {
+		// Handle Forwarding (Offer, Answer, Candidate)
+		if sig.Target != "" {
 			clientsMu.Lock()
-			target, exists := clients[sig.To]
+			targetConn, exists := clients[sig.Target]
 			clientsMu.Unlock()
+
 			if exists {
-				target.WriteMessage(websocket.TextMessage, msg)
-				log.Printf("➡️ Forwarded %s from %s to %s", sig.Type, sig.From, sig.To)
+				// We attach the sender's ID so the target knows who to reply to
+				sig.Sender = currentClientID
+				forwardMsg, _ := json.Marshal(sig)
+
+				err = targetConn.WriteMessage(websocket.TextMessage, forwardMsg)
+				if err != nil {
+					log.Printf("Error forwarding to %s: %v", sig.Target, err)
+				} else {
+					log.Printf("➡️ Forwarded %s from %s to %s", sig.Type, currentClientID, sig.Target)
+				}
 			} else {
-				log.Printf("❌ Target %s not found for %s", sig.To, sig.Type)
+				log.Printf("⚠️ Target %s not found for %s", sig.Target, sig.Type)
 			}
 		}
 	}
