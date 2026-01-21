@@ -53,7 +53,7 @@
             tools:replace="android:exported">
             <property 
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" 
-                android:value="VPN connectivity and WebRTC signaling"/>
+                android:value="VPN and Secure Tunneling"/>
         </service>
         
         <!-- Boot Receiver for auto-reconnect -->

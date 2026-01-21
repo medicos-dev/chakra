@@ -3,8 +3,27 @@ import 'dart:ui';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
 Future<void> initializeService() async {
   final service = FlutterBackgroundService();
+
+  // 1. Create the notification channel (CRITICAL for Android 13+)
+  const AndroidNotificationChannel channel = AndroidNotificationChannel(
+    'chakra_vpn_notification', // id
+    'Chakra VPN Service', // title
+    description: 'This channel is used for VPN status.', // description
+    importance: Importance.low, // low so it doesn't make noise every time
+  );
+
+  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+      FlutterLocalNotificationsPlugin();
+
+  await flutterLocalNotificationsPlugin
+      .resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin
+      >()
+      ?.createNotificationChannel(channel);
 
   await service.configure(
     androidConfiguration: AndroidConfiguration(
@@ -12,8 +31,8 @@ Future<void> initializeService() async {
       autoStart: false, // Prevent crash on boot/init
       isForegroundMode: true,
       notificationChannelId: 'chakra_vpn_notification',
-      initialNotificationTitle: 'Chakra VPN',
-      initialNotificationContent: 'Chakra is protecting you',
+      initialNotificationTitle: 'Chakra is connecting',
+      initialNotificationContent: 'Setting up secure tunnel...',
       foregroundServiceNotificationId: 888,
     ),
     iosConfiguration: IosConfiguration(
