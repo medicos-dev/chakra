@@ -31,7 +31,11 @@ class ChakraVpnService : VpnService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "STOP") {
+        if (intent == null) {
+            return START_NOT_STICKY
+        }
+
+        if (intent.action == "STOP") {
             stopVpn()
             return START_NOT_STICKY
         }
@@ -40,8 +44,8 @@ class ChakraVpnService : VpnService() {
             return START_STICKY
         }
 
-        // Start command is handled via connect() method when using ForegroundService
-        // but we keep this for direct service starting if needed
+        // START VPN
+        startVpn()
         return START_STICKY
     }
 

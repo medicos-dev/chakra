@@ -240,6 +240,10 @@ class VpnProvider extends ChangeNotifier {
       }
 
       _signalingSocket = await WebSocket.connect(url);
+
+      // Register with the signaling server to receive replies
+      _sendSignalingMessage({'type': 'register', 'from': _deviceId});
+
       _signalingSocket?.listen(
         (data) => _handleSignalingMessage(data),
         onDone: () {
@@ -278,11 +282,7 @@ class VpnProvider extends ChangeNotifier {
             'type': 'candidate',
             'from': _deviceId,
             'to': 'laptop_gateway',
-            'candidate': {
-              'candidate': candidate.candidate,
-              'sdpMid': candidate.sdpMid,
-              'sdpMLineIndex': candidate.sdpMLineIndex,
-            },
+            'candidate': candidate.toMap(),
           });
         });
       };
