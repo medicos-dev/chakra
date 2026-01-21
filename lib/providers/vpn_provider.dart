@@ -84,9 +84,19 @@ class VpnProvider extends ChangeNotifier {
 
   // Signaling Config
   final Map<String, dynamic> _iceServers = {
-    'iceServers': [
-      {'urls': 'stun:stun.l.google.com:19302'},
+    "iceServers": [
+      {
+        "urls": [
+          // "stun:stun.l.google.com:19302",
+          // "stun:free.expressturn.com:3478",
+          "turn:free.expressturn.com:3478?transport=tcp", // Force TCP
+        ],
+        "username": "000000002084374934",
+        "credential": "6CR+Wx+nNcHiara9mt8wPan7RLM=",
+      },
     ],
+    "iceTransportPolicy":
+        "relay", // Force it to use the TURN server even on WiFi for testing
   };
 
   // Getters
@@ -259,6 +269,11 @@ class VpnProvider extends ChangeNotifier {
       _signalingSocket?.listen(
         (data) => _handleSignalingMessage(data),
         onDone: () {
+          print(
+            "⚠️ WebSocket Closed! Reason: ${_signalingSocket?.closeReason}",
+          );
+          print("⚠️ Close Code: ${_signalingSocket?.closeCode}");
+
           if (_connectionState != VpnConnectionState.disconnected) {
             disconnect();
           }
@@ -306,13 +321,13 @@ class VpnProvider extends ChangeNotifier {
         }
       };
 
-      // 3. Create Data Channel
-      final dcInit =
-          RTCDataChannelInit()
-            ..ordered = false
-            ..maxRetransmits = 0;
+      // 3. [CRITICAL] Create Data Channel BEFORE creating the offer
+      final dcInit = RTCDataChannelInit()..ordered = true;
 
-      _dataChannel = await _peerConnection?.createDataChannel('vpn', dcInit);
+      _dataChannel = await _peerConnection?.createDataChannel(
+        'chakra_vpn',
+        dcInit,
+      );
       _dataChannel?.onDataChannelState = (state) async {
         if (state == RTCDataChannelState.RTCDataChannelOpen) {
           print(
@@ -330,11 +345,17 @@ class VpnProvider extends ChangeNotifier {
           _downloadBytes += message.binary.length;
           _sendPacketToNative(message.binary);
         } else {
-          // CONTROL MESSAGE: Handle IP Assignment
-          final text = message.text;
-          if (text.startsWith('SET_IP:')) {
-            final assignedIp = text.split(':')[1];
-            print('🚀 Received Assigned IP from Gateway: $assignedIp');
+          // THIS IS THE FIX: Handle the SET_IP text message
+          print("📩 Received Text Message: ${message.text}");
+
+          if (message.text.startsWith('SET_IP:')) {
+            String assignedIp = message.text.split(':')[1];
+            print("🚀 Gateway assigned IP: $assignedIp. Starting VPN...");
+
+            // Fixed: Cancel timeout since we have successfully received the IP
+            _connectionTimeoutTimer?.cancel();
+
+            // CALL YOUR METHOD TO START THE ANDROID VPN SERVICE
             _startVpnService(assignedIp: assignedIp);
           }
         }
@@ -377,6 +398,7 @@ class VpnProvider extends ChangeNotifier {
 
       // Pass the assigned IP to the native VPN service
       await _controlChannel.invokeMethod('start', {'ip': assignedIp});
+      print("✅ Android VPN Service Requested with IP $assignedIp");
 
       // OUTBOUND: TUN -> WebRTC -> Gateway
       _packetSubscription = _packetChannel.receiveBroadcastStream().listen((
@@ -543,43 +565,36 @@ class VpnProvider extends ChangeNotifier {
           print("I/flutter: Signaling Error during Answer: $e");
         }
       } else if (type == 'candidate') {
+        print("🧊 Received Candidate from Gateway");
         try {
-          // Parse candidate from payload (JSON string) or old format
-          Map<String, dynamic>? candidateData;
-
+          // 1. Decode the JSON string from Go
+          dynamic candidateMap;
           if (payload != null && payload.isNotEmpty) {
-            candidateData = jsonDecode(payload) as Map<String, dynamic>?;
+            candidateMap = jsonDecode(payload);
           } else {
-            candidateData = data['candidate'] as Map<String, dynamic>?;
+            candidateMap = data['candidate'];
           }
 
-          if (candidateData != null && _peerConnection != null) {
-            final candidateStr = candidateData['candidate']?.toString();
-            final sdpMid = candidateData['sdpMid']?.toString();
-            final sdpMLineIndex =
-                candidateData['sdpMLineIndex'] is int
-                    ? candidateData['sdpMLineIndex']
-                    : int.tryParse(
-                      candidateData['sdpMLineIndex']?.toString() ?? "",
-                    );
+          // 2. Create the RTCIceCandidate object safely
+          if (candidateMap != null &&
+              candidateMap['candidate'] != null &&
+              _peerConnection != null) {
+            final candidate = RTCIceCandidate(
+              candidateMap['candidate'],
+              candidateMap['sdpMid'],
+              candidateMap['sdpMLineIndex'],
+            );
 
-            if (candidateStr != null) {
-              final candidate = RTCIceCandidate(
-                candidateStr,
-                sdpMid,
-                sdpMLineIndex,
-              );
-
-              if (_remoteDescriptionSet) {
-                await _peerConnection!.addCandidate(candidate);
-              } else {
-                print('Queueing ICE Candidate (Remote Description not set)');
-                _remoteCandidates.add(candidate);
-              }
+            if (_remoteDescriptionSet) {
+              await _peerConnection!.addCandidate(candidate);
+              print("✅ Added ICE Candidate");
+            } else {
+              print('⏳ Queueing ICE Candidate (Remote Description not set)');
+              _remoteCandidates.add(candidate);
             }
           }
         } catch (e) {
-          print("I/flutter: Candidate Error: $e");
+          print("❌ Candidate Error: $e");
         }
       }
     } catch (e) {
