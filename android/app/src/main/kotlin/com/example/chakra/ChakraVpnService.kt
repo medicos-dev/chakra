@@ -44,8 +44,12 @@ class ChakraVpnService : VpnService() {
             return START_STICKY
         }
 
-        // START VPN
-        startVpn()
+        // Get assigned IP from Gateway (default fallback)
+        val assignedIp = intent.getStringExtra("ip") ?: "10.0.0.2"
+        Log.i(TAG, "Starting VPN with assigned IP: $assignedIp")
+
+        // START VPN with dynamic IP
+        startVpn(assignedIp)
         return START_STICKY
     }
 
@@ -99,13 +103,13 @@ class ChakraVpnService : VpnService() {
         super.onDestroy()
     }
 
-    private fun startVpn() {
+    private fun startVpn(assignedIp: String) {
         Log.i(TAG, "Starting VPN...")
         try {
-            // Configure VPN interface
+            // Configure VPN interface with dynamic IP from Gateway
             val builder = Builder()
             builder.setSession("Chakra VPN")
-            builder.addAddress("10.0.0.2", 32)
+            builder.addAddress(assignedIp, 24)  // Use assigned IP
             builder.addRoute("0.0.0.0", 0)
             builder.addDnsServer("8.8.8.8")
             builder.setMtu(1500)
@@ -125,7 +129,7 @@ class ChakraVpnService : VpnService() {
                 mRunning.set(true)
                 mThread = Thread { runVpnLoop() }
                 mThread?.start()
-                Log.i(TAG, "VPN Established")
+                Log.i(TAG, "VPN Established with IP: $assignedIp")
             } else {
                 Log.e(TAG, "Failed to establish VPN interface: establish() returned null")
             }

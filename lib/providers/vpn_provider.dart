@@ -253,7 +253,8 @@ class VpnProvider extends ChangeNotifier {
       _signalingSocket = await WebSocket.connect(url);
 
       // Register with the signaling server to receive replies
-      _sendSignalingMessage({'type': 'register', 'from': _deviceId});
+      // New format: target is our own ID for registration
+      _sendSignalingMessage({'type': 'register', 'target': _deviceId});
 
       _signalingSocket?.listen(
         (data) => _handleSignalingMessage(data),
@@ -291,9 +292,8 @@ class VpnProvider extends ChangeNotifier {
         Future.delayed(const Duration(seconds: 1), () {
           _sendSignalingMessage({
             'type': 'candidate',
-            'from': _deviceId,
-            'to': 'laptop_gateway',
-            'candidate': candidate.toMap(),
+            'target': 'laptop_gateway',
+            'payload': jsonEncode(candidate.toMap()),
           });
         });
       };
@@ -315,8 +315,10 @@ class VpnProvider extends ChangeNotifier {
       _dataChannel = await _peerConnection?.createDataChannel('vpn', dcInit);
       _dataChannel?.onDataChannelState = (state) async {
         if (state == RTCDataChannelState.RTCDataChannelOpen) {
-          print('Data Channel OPEN - Starting VPN Service');
-          await _startVpnService();
+          print(
+            'Data Channel OPEN - Waiting for IP Assignment from Gateway...',
+          );
+          // Don't start VPN yet - wait for SET_IP control message
         } else if (state == RTCDataChannelState.RTCDataChannelClosed) {
           disconnect();
         }
@@ -324,8 +326,17 @@ class VpnProvider extends ChangeNotifier {
 
       _dataChannel?.onMessage = (RTCDataChannelMessage message) {
         if (message.isBinary) {
+          // INBOUND: Gateway -> WebRTC -> TUN
           _downloadBytes += message.binary.length;
           _sendPacketToNative(message.binary);
+        } else {
+          // CONTROL MESSAGE: Handle IP Assignment
+          final text = message.text;
+          if (text.startsWith('SET_IP:')) {
+            final assignedIp = text.split(':')[1];
+            print('🚀 Received Assigned IP from Gateway: $assignedIp');
+            _startVpnService(assignedIp: assignedIp);
+          }
         }
       };
 
@@ -337,9 +348,8 @@ class VpnProvider extends ChangeNotifier {
       await _peerConnection?.setLocalDescription(offer!);
       _sendSignalingMessage({
         'type': 'offer',
-        'from': _deviceId,
-        'to': 'laptop_gateway',
-        'sdp': offer?.sdp,
+        'target': 'laptop_gateway',
+        'payload': offer?.sdp ?? '',
       });
     } catch (e) {
       print('Connection Error: $e');
@@ -357,7 +367,7 @@ class VpnProvider extends ChangeNotifier {
     });
   }
 
-  Future<void> _startVpnService() async {
+  Future<void> _startVpnService({String assignedIp = '10.0.0.2'}) async {
     try {
       // Start Flutter Background Service (Foreground)
       final service = FlutterBackgroundService();
@@ -365,8 +375,10 @@ class VpnProvider extends ChangeNotifier {
         service.startService();
       }
 
-      await _controlChannel.invokeMethod('start');
+      // Pass the assigned IP to the native VPN service
+      await _controlChannel.invokeMethod('start', {'ip': assignedIp});
 
+      // OUTBOUND: TUN -> WebRTC -> Gateway
       _packetSubscription = _packetChannel.receiveBroadcastStream().listen((
         dynamic event,
       ) {
@@ -379,7 +391,7 @@ class VpnProvider extends ChangeNotifier {
 
       _connectionState = VpnConnectionState.connected;
       _connectedSince = DateTime.now();
-      _currentIp = '10.0.0.2';
+      _currentIp = assignedIp;
 
       _connectionTimeoutTimer?.cancel();
 
@@ -490,27 +502,31 @@ class VpnProvider extends ChangeNotifier {
     try {
       final data = jsonDecode(rawMessage);
       final String? type = data['type'];
+      // New format uses 'payload' for SDP/candidate data
+      final String? payload = data['payload'];
 
       if (type == 'answer') {
         print("I/flutter: Setting Remote Description from Answer");
 
         try {
-          var sdpData = data['sdp'];
           String? sdpString;
-          String? sdpType;
 
-          // Handle if 'sdp' is a nested Map (from Go) or a direct value
-          if (sdpData is Map) {
-            sdpString = sdpData['sdp'];
-            sdpType = sdpData['type'];
+          // Handle both old format (data['sdp']) and new format (data['payload'])
+          if (payload != null && payload.isNotEmpty) {
+            sdpString = payload;
           } else {
-            sdpString = sdpData;
-            sdpType = 'answer';
+            // Fallback to old format
+            var sdpData = data['sdp'];
+            if (sdpData is Map) {
+              sdpString = sdpData['sdp'];
+            } else {
+              sdpString = sdpData;
+            }
           }
 
           if (sdpString != null) {
             await _peerConnection?.setRemoteDescription(
-              RTCSessionDescription(sdpString, sdpType ?? 'answer'),
+              RTCSessionDescription(sdpString, 'answer'),
             );
             print("I/flutter: Remote Description Set Successfully!");
 
@@ -528,24 +544,24 @@ class VpnProvider extends ChangeNotifier {
         }
       } else if (type == 'candidate') {
         try {
-          final candidateData = data['candidate'];
-          if (candidateData != null && _peerConnection != null) {
-            String? candidateStr;
-            String? sdpMid;
-            int? sdpMLineIndex;
+          // Parse candidate from payload (JSON string) or old format
+          Map<String, dynamic>? candidateData;
 
-            if (candidateData is Map) {
-              candidateStr = candidateData['candidate']?.toString();
-              sdpMid = candidateData['sdpMid']?.toString();
-              sdpMLineIndex =
-                  candidateData['sdpMLineIndex'] is int
-                      ? candidateData['sdpMLineIndex']
-                      : int.tryParse(
-                        candidateData['sdpMLineIndex']?.toString() ?? "",
-                      );
-            } else {
-              candidateStr = candidateData.toString();
-            }
+          if (payload != null && payload.isNotEmpty) {
+            candidateData = jsonDecode(payload) as Map<String, dynamic>?;
+          } else {
+            candidateData = data['candidate'] as Map<String, dynamic>?;
+          }
+
+          if (candidateData != null && _peerConnection != null) {
+            final candidateStr = candidateData['candidate']?.toString();
+            final sdpMid = candidateData['sdpMid']?.toString();
+            final sdpMLineIndex =
+                candidateData['sdpMLineIndex'] is int
+                    ? candidateData['sdpMLineIndex']
+                    : int.tryParse(
+                      candidateData['sdpMLineIndex']?.toString() ?? "",
+                    );
 
             if (candidateStr != null) {
               final candidate = RTCIceCandidate(
@@ -572,9 +588,8 @@ class VpnProvider extends ChangeNotifier {
   }
 
   void _sendSignalingMessage(Map<String, dynamic> msg) {
-    // Ensure all messages have from/to fields
-    msg['from'] = _deviceId;
-    msg['to'] = msg['to'] ?? 'laptop_gateway';
+    // Use new format: type, target, sender, payload
+    // Sender is auto-filled by the signaling server, but we can include it
     _signalingSocket?.add(jsonEncode(msg));
   }
 

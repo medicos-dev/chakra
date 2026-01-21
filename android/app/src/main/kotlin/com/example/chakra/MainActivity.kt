@@ -19,7 +19,8 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CONTROL_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "start" -> {
-                    startVpn()
+                    val ip = call.argument<String>("ip") ?: "10.0.0.2"
+                    startVpn(ip)
                     result.success(true)
                 }
                 "stop" -> {
@@ -55,7 +56,10 @@ class MainActivity : FlutterActivity() {
         )
     }
 
-    private fun startVpn() {
+    private var pendingIp: String = "10.0.0.2"
+
+    private fun startVpn(ip: String) {
+        pendingIp = ip
         val intent = VpnService.prepare(this)
         if (intent != null) {
             startActivityForResult(intent, VPN_REQUEST_CODE)
@@ -68,6 +72,7 @@ class MainActivity : FlutterActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == VPN_REQUEST_CODE && resultCode == RESULT_OK) {
             val intent = Intent(this, ChakraVpnService::class.java)
+            intent.putExtra("ip", pendingIp)
             startService(intent)
         }
     }
