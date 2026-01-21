@@ -186,9 +186,20 @@ class VpnProvider extends ChangeNotifier {
     _connectivitySubscription = Connectivity().onConnectivityChanged.listen((
       List<ConnectivityResult> results,
     ) {
-      // If connected and network changed, refresh the tunnel
-      if (isConnected && results.isNotEmpty) {
-        print('Network changed, refreshing tunnel...');
+      // CRITICAL: If the ONLY change is a VPN connection, ignore it!
+      // This prevents an infinite loop when our own tunnel triggers a network change.
+      if (results.contains(ConnectivityResult.vpn)) {
+        print('Ignoring VPN network change event (our own tunnel)');
+        return;
+      }
+
+      // Only refresh if WiFi or Mobile data actually changed
+      if (isConnected &&
+          (results.contains(ConnectivityResult.wifi) ||
+              results.contains(ConnectivityResult.mobile))) {
+        print(
+          'Real network change detected (WiFi/Mobile), refreshing tunnel...',
+        );
         _refreshConnection();
       }
     });
